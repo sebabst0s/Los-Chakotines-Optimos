@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 
   <style>
   /* ════════════════════════════════════════════════════════════════════
@@ -735,6 +736,23 @@
     font-size:.64rem; color:var(--muted2); line-height:1.5;
     border-top:1px solid rgba(139,92,246,.08); padding-top:.7rem; margin-top:auto;
   }
+
+  /* ════════════════════════════════════════════════════════════════════
+     CHART.JS CHART CONTAINERS
+  ════════════════════════════════════════════════════════════════════ */
+  .dual-chart-wrap {
+    display: none;
+    grid-template-columns: 1fr 1fr;
+    gap: .9rem;
+    background: var(--inp);
+    border: 1.5px solid var(--lav-m);
+    border-radius: 12px;
+    padding: 1rem;
+    box-shadow: var(--sh-md);
+  }
+  .dual-chart-wrap.show { display: grid; }
+  @media (max-width: 720px) { .dual-chart-wrap { grid-template-columns: 1fr; } }
+  .dual-chart-wrap canvas { max-height: 260px; }
   </style>
 </head>
 <body>
@@ -987,7 +1005,10 @@
           </div>
           <div class="chart-wrap">
             <div class="slbl"><span class="dot dot-lav"></span> Gráfico de convergencia</div>
-            <img id="r-chart" class="chart-img" src="" alt="Convergencia" style="display:none">
+            <div class="dual-chart-wrap" id="r-charts">
+              <canvas id="r-chart-1"></canvas>
+              <canvas id="r-chart-2"></canvas>
+            </div>
           </div>
           <hr class="div">
           <div>
@@ -1028,7 +1049,10 @@
 
           <div class="chart-wrap">
             <div class="slbl"><span class="dot dot-lav"></span> Convergencia comparada</div>
-            <img id="cmp-chart" class="chart-img" src="" alt="Comparación" style="display:none">
+            <div class="dual-chart-wrap" id="cmp-charts">
+              <canvas id="cmp-chart-1"></canvas>
+              <canvas id="cmp-chart-2"></canvas>
+            </div>
           </div>
         </div><!-- /cmp-results -->
 
@@ -1392,8 +1416,7 @@ function render(d, p) {
   $('r-tol').textContent   = tolUsed;
   $('r-xopt').textContent  = fmtVec(d.x_opt);
 
-  const img = $('r-chart');
-  img.src = 'data:image/png;base64,' + d.plot; img.style.display = 'block';
+  renderChart(d.history, d.method_name);
 
   const tbody = $('r-tbody'); tbody.innerHTML = '';
   (d.history||[]).forEach(row => {
@@ -1501,8 +1524,7 @@ function renderComparison(data, p) {
   $('cmp-sub').textContent =
     `f(x) = ${p.fn.slice(0,60)}${p.fn.length>60?'…':''} · x₀ = [${p.x0}] · ε = ${val('tol')}`;
 
-  const img = $('cmp-chart');
-  img.src = 'data:image/png;base64,' + data.plot; img.style.display = 'block';
+  renderComparisonChart(results);
 
   // Contour animation (n=2)
   if (p.n === 2) {
@@ -1778,6 +1800,136 @@ function animStep(delta) { if (_animator) _animator.step(delta); }
 function animSpeed(v) {
   if (_animator) _animator.setSpeed(parseInt(v));
   $('speed-val').textContent = v + '×';
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   CHART.JS — Convergence charts (replaces matplotlib server-side)
+══════════════════════════════════════════════════════════════════ */
+let _chart1 = null, _chart2 = null;   // single-method charts
+let _cmpC1  = null, _cmpC2  = null;   // comparison charts
+
+const _CHART_BASE = {
+  responsive: true,
+  maintainAspectRatio: true,
+  animation: { duration: 320 },
+  interaction: { mode: 'index', intersect: false },
+  plugins: { legend: { display: false } },
+};
+
+function _xScale() {
+  return {
+    type: 'linear',
+    title: { display: true, text: 'Iteración', color: '#6b7280', font: { size: 10 } },
+    grid:  { color: '#e8e5f5' },
+    ticks: { color: '#6b7280', maxTicksLimit: 8, font: { size: 9 } },
+  };
+}
+function _yScale(label, log) {
+  return {
+    type: log ? 'logarithmic' : 'linear',
+    title: { display: true, text: label, color: '#6b7280', font: { size: 10 } },
+    grid:  { color: '#e8e5f5' },
+    ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 6 },
+  };
+}
+
+function renderChart(history, methodName) {
+  if (_chart1) { _chart1.destroy(); _chart1 = null; }
+  if (_chart2) { _chart2.destroy(); _chart2 = null; }
+
+  const nr = history.length > 120 ? 0 : 2.5;
+  const gPts = history.map(h => ({ x: h.k, y: Math.max(h.grad_norm, 1e-300) }));
+  const fPts = history.map(h => ({ x: h.k, y: h.f }));
+
+  $('r-charts').classList.add('show');
+
+  _chart1 = new Chart($('r-chart-1'), {
+    type: 'line',
+    data: { datasets: [{
+      data: gPts, borderColor: '#7c3aed',
+      backgroundColor: 'rgba(124,58,237,.10)', fill: true,
+      pointRadius: nr, borderWidth: 2.2, tension: 0.25,
+    }]},
+    options: { ..._CHART_BASE,
+      plugins: { ..._CHART_BASE.plugins,
+        title: { display: true, text: '‖∇f(x)‖ — Norma del gradiente',
+                 color: '#2d2b55', font: { size: 11, weight: 'bold' }, padding: { bottom: 8 } },
+        tooltip: { callbacks: { label: c => '‖∇f‖ = ' + c.parsed.y.toExponential(3) } },
+      },
+      scales: { x: _xScale(), y: _yScale('‖∇f(x)‖', true) },
+    },
+  });
+
+  _chart2 = new Chart($('r-chart-2'), {
+    type: 'line',
+    data: { datasets: [{
+      data: fPts, borderColor: '#f97316',
+      backgroundColor: 'rgba(249,115,22,.10)', fill: true,
+      pointRadius: nr, borderWidth: 2.2, tension: 0.25,
+    }]},
+    options: { ..._CHART_BASE,
+      plugins: { ..._CHART_BASE.plugins,
+        title: { display: true, text: 'f(x) — Valor de la función',
+                 color: '#2d2b55', font: { size: 11, weight: 'bold' }, padding: { bottom: 8 } },
+        tooltip: { callbacks: { label: c => 'f(x) = ' + c.parsed.y.toPrecision(5) } },
+      },
+      scales: { x: _xScale(), y: _yScale('f(x)', false) },
+    },
+  });
+}
+
+function renderComparisonChart(results) {
+  if (_cmpC1) { _cmpC1.destroy(); _cmpC1 = null; }
+  if (_cmpC2) { _cmpC2.destroy(); _cmpC2 = null; }
+
+  const CMP = {
+    gradient:  { color: '#7c3aed', label: 'Steepest Descent' },
+    conjugate: { color: '#0ea5e9', label: 'Fletcher-Reeves'  },
+    newton:    { color: '#f43f5e', label: 'Newton'           },
+  };
+
+  const ds1 = [], ds2 = [];
+  ['gradient', 'conjugate', 'newton'].forEach(k => {
+    const r = results[k];
+    if (!r || !r.history || !r.history.length) return;
+    const c = CMP[k];
+    ds1.push({ label: c.label,
+      data: r.history.map(h => ({ x: h.k, y: Math.max(h.grad_norm, 1e-300) })),
+      borderColor: c.color, pointRadius: 0, borderWidth: 2.2, tension: 0.25 });
+    ds2.push({ label: c.label,
+      data: r.history.map(h => ({ x: h.k, y: h.f })),
+      borderColor: c.color, pointRadius: 0, borderWidth: 2.2, tension: 0.25 });
+  });
+
+  const leg = { display: true, position: 'top',
+    labels: { color: '#2d2b55', font: { size: 9 }, boxWidth: 14, padding: 10 } };
+
+  $('cmp-charts').classList.add('show');
+
+  _cmpC1 = new Chart($('cmp-chart-1'), {
+    type: 'line',
+    data: { datasets: ds1 },
+    options: { ..._CHART_BASE,
+      plugins: { legend: leg,
+        title: { display: true, text: '‖∇f(x)‖ — Norma del gradiente',
+                 color: '#2d2b55', font: { size: 11, weight: 'bold' }, padding: { bottom: 6 } },
+      },
+      scales: { x: _xScale(), y: _yScale('‖∇f(x)‖', true) },
+    },
+  });
+
+  _cmpC2 = new Chart($('cmp-chart-2'), {
+    type: 'line',
+    data: { datasets: ds2 },
+    options: { ..._CHART_BASE,
+      plugins: { legend: leg,
+        title: { display: true, text: 'f(x) — Valor de la función',
+                 color: '#2d2b55', font: { size: 11, weight: 'bold' }, padding: { bottom: 6 } },
+      },
+      scales: { x: _xScale(), y: _yScale('f(x)', false) },
+    },
+  });
 }
 
 

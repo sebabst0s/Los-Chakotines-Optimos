@@ -1,10 +1,5 @@
 from flask import Flask, render_template, request, jsonify
 import numpy as np
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import io
-import base64
 import math
 import os
 import time
@@ -13,18 +8,6 @@ import sys
 sys.setrecursionlimit(5000)
 
 app = Flask(__name__)
-
-# Pre-warm matplotlib font/layout engine at startup to avoid cold-start overhead
-# and prevent any deferred initialisation from happening inside a request.
-try:
-    _warmup_fig, _warmup_ax = plt.subplots(1, 1, figsize=(2, 2))
-    _warmup_ax.plot([0], [0])
-    _warmup_buf = io.BytesIO()
-    plt.savefig(_warmup_buf, format='png', dpi=72, bbox_inches='tight')
-    plt.close(_warmup_fig)
-    del _warmup_fig, _warmup_ax, _warmup_buf
-except Exception:
-    pass
 
 # ── Safe evaluation namespace ────────────────────────────────────────────────
 
@@ -238,125 +221,6 @@ def newton(f, x0, max_iter, tol, c1, c2, alpha_init):
     return x, history
 
 
-# ── Plot helpers ─────────────────────────────────────────────────────────────
-
-_PLOT_THEME = dict(
-    BG='#f4f2ff', BG2='#ffffff', GRID='#e8e5f5',
-    MUTED='#6b7280', TEXT='#2d2b55', SPINE='#ddd6fe',
-)
-
-
-def _style_axes(ax):
-    t = _PLOT_THEME
-    ax.set_facecolor(t['BG2'])
-    ax.tick_params(colors=t['MUTED'], labelsize=9)
-    for sp in ax.spines.values():
-        sp.set_color(t['SPINE'])
-    ax.grid(True, color=t['GRID'], alpha=1.0, linestyle='--', linewidth=0.7)
-
-
-def _savefig(fig):
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png', dpi=115, bbox_inches='tight',
-                facecolor=_PLOT_THEME['BG'])
-    buf.seek(0)
-    b64 = base64.b64encode(buf.read()).decode()
-    plt.close(fig)
-    return b64
-
-
-# ── Single convergence plot ──────────────────────────────────────────────────
-
-def make_plot(history, method_name):
-    iters  = [h['k']         for h in history]
-    gnorms = [h['grad_norm'] for h in history]
-    fvals  = [h['f']         for h in history]
-    t = _PLOT_THEME
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4.8))
-    fig.patch.set_facecolor(t['BG'])
-    _style_axes(ax1); _style_axes(ax2)
-
-    every = max(1, len(iters) // 60)
-    C_GRAD, C_FUNC = '#7c3aed', '#f97316'
-    C_F1,   C_F2   = '#c4b5fd', '#fed7aa'
-
-    ax1.semilogy(iters, gnorms, color=C_GRAD, lw=2.2,
-                 marker='o', ms=2.8, markevery=every,
-                 markerfacecolor=C_GRAD, markeredgewidth=0, zorder=3)
-    pos_gnorms = [max(g, 1e-300) for g in gnorms]
-    ax1.fill_between(iters, pos_gnorms, min(pos_gnorms),
-                     color=C_F1, alpha=0.30, zorder=2)
-    ax1.set_xlabel('Iteración', color=t['MUTED'], fontsize=10)
-    ax1.set_ylabel('‖∇f(x)‖',  color=t['MUTED'], fontsize=10)
-    ax1.set_title('Norma del gradiente', color=t['TEXT'],
-                  fontsize=11, fontweight='bold', pad=10)
-
-    ax2.plot(iters, fvals, color=C_FUNC, lw=2.2,
-             marker='o', ms=2.8, markevery=every,
-             markerfacecolor=C_FUNC, markeredgewidth=0, zorder=3)
-    ax2.fill_between(iters, fvals, min(fvals), color=C_F2, alpha=0.35, zorder=2)
-    ax2.set_xlabel('Iteración', color=t['MUTED'], fontsize=10)
-    ax2.set_ylabel('f(x)',      color=t['MUTED'], fontsize=10)
-    ax2.set_title('Valor de la función', color=t['TEXT'],
-                  fontsize=11, fontweight='bold', pad=10)
-
-    fig.suptitle(f'Convergencia — {method_name}',
-                 color=t['TEXT'], fontsize=13, fontweight='bold', y=0.98)
-    return _savefig(fig)
-
-
-# ── Comparison convergence plot ──────────────────────────────────────────────
-
-_CMP_COLORS = {'gradient': '#7c3aed', 'conjugate': '#0ea5e9', 'newton': '#f43f5e'}
-_CMP_LABELS = {'gradient': 'Steepest Descent', 'conjugate': 'Fletcher-Reeves', 'newton': 'Newton'}
-
-
-def make_comparison_plot(results):
-    t = _PLOT_THEME
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4.8))
-    fig.patch.set_facecolor(t['BG'])
-    _style_axes(ax1); _style_axes(ax2)
-
-    leg_kw = dict(fontsize=8.5, framealpha=0.9, facecolor='#fafafa',
-                  edgecolor=t['SPINE'], labelcolor=t['TEXT'])
-
-    for key in ('gradient', 'conjugate', 'newton'):
-        res = results.get(key, {})
-        hist = res.get('history', [])
-        if not hist:
-            continue
-        iters  = [h['k'] for h in hist]
-        gnorms = [max(h['grad_norm'], 1e-300) for h in hist]
-        fvals  = [h['f'] for h in hist]
-        c      = _CMP_COLORS[key]
-        lbl    = _CMP_LABELS[key]
-        every  = max(1, len(iters) // 60)
-
-        ax1.semilogy(iters, gnorms, color=c, lw=2.2, label=lbl,
-                     marker='o', ms=2.5, markevery=every,
-                     markerfacecolor=c, markeredgewidth=0, alpha=0.9, zorder=3)
-        ax2.plot(iters, fvals, color=c, lw=2.2, label=lbl,
-                 marker='o', ms=2.5, markevery=every,
-                 markerfacecolor=c, markeredgewidth=0, alpha=0.9, zorder=3)
-
-    ax1.set_xlabel('Iteración', color=t['MUTED'], fontsize=10)
-    ax1.set_ylabel('‖∇f(x)‖',  color=t['MUTED'], fontsize=10)
-    ax1.set_title('Norma del gradiente', color=t['TEXT'],
-                  fontsize=11, fontweight='bold', pad=10)
-    ax1.legend(**leg_kw)
-
-    ax2.set_xlabel('Iteración', color=t['MUTED'], fontsize=10)
-    ax2.set_ylabel('f(x)',      color=t['MUTED'], fontsize=10)
-    ax2.set_title('Valor de la función', color=t['TEXT'],
-                  fontsize=11, fontweight='bold', pad=10)
-    ax2.legend(**leg_kw)
-
-    fig.suptitle('Comparación de métodos — Convergencia',
-                 color=t['TEXT'], fontsize=13, fontweight='bold', y=0.98)
-    return _savefig(fig)
-
-
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 METHOD_NAMES = {
@@ -457,7 +321,6 @@ def optimize():
             final_gn    = final_gn,
             converged   = converged,
             method_name = METHOD_NAMES[method],
-            plot        = make_plot(history, METHOD_NAMES[method]),
             history     = history[:200],
         )
 
@@ -513,8 +376,7 @@ def compare():
                 'history':     history[:200],
             }
 
-        plot = make_comparison_plot(results)
-        return jsonify(success=True, results=results, plot=plot)
+        return jsonify(success=True, results=results)
 
     except Exception as exc:
         import traceback
