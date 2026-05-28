@@ -8,8 +8,23 @@ import base64
 import math
 import os
 import time
+import sys
+
+sys.setrecursionlimit(5000)
 
 app = Flask(__name__)
+
+# Pre-warm matplotlib font/layout engine at startup to avoid cold-start overhead
+# and prevent any deferred initialisation from happening inside a request.
+try:
+    _warmup_fig, _warmup_ax = plt.subplots(1, 1, figsize=(2, 2))
+    _warmup_ax.plot([0], [0])
+    _warmup_buf = io.BytesIO()
+    plt.savefig(_warmup_buf, format='png', dpi=72, bbox_inches='tight')
+    plt.close(_warmup_fig)
+    del _warmup_fig, _warmup_ax, _warmup_buf
+except Exception:
+    pass
 
 # ── Safe evaluation namespace ────────────────────────────────────────────────
 
@@ -287,8 +302,7 @@ def make_plot(history, method_name):
                   fontsize=11, fontweight='bold', pad=10)
 
     fig.suptitle(f'Convergencia — {method_name}',
-                 color=t['TEXT'], fontsize=13, fontweight='bold', y=1.02)
-    plt.tight_layout()
+                 color=t['TEXT'], fontsize=13, fontweight='bold', y=0.98)
     return _savefig(fig)
 
 
@@ -339,8 +353,7 @@ def make_comparison_plot(results):
     ax2.legend(**leg_kw)
 
     fig.suptitle('Comparación de métodos — Convergencia',
-                 color=t['TEXT'], fontsize=13, fontweight='bold', y=1.02)
-    plt.tight_layout()
+                 color=t['TEXT'], fontsize=13, fontweight='bold', y=0.98)
     return _savefig(fig)
 
 
