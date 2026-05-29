@@ -1841,21 +1841,21 @@ function _prepCanvas(id) {
 function _mkXAxis() {
   return {
     grid:  { color: '#e8e5f5' },
-    ticks: { color: '#6b7280', maxTicksLimit: 10, font: { size: 9 } },
-    title: { display: true, text: 'Iteracion', color: '#6b7280', font: { size: 10 } },
+    ticks: { color: '#6b7280', maxTicksLimit: 10, font: { size: 11 } },
+    title: { display: true, text: 'Iteracion', color: '#6b7280', font: { size: 13 } },
   };
 }
 
 function _mkYAxis(log) {
   const base = {
     grid:  { color: '#e8e5f5' },
-    ticks: { color: '#6b7280', font: { size: 9 } },
+    ticks: { color: '#6b7280', font: { size: 11 } },
   };
   if (log) {
     base.type = 'logarithmic';
-    base.title = { display: true, text: '||Gf(x)||', color: '#6b7280', font: { size: 10 } };
+    base.title = { display: true, text: '||Gf(x)||', color: '#6b7280', font: { size: 13 } };
   } else {
-    base.title = { display: true, text: 'f(x)', color: '#6b7280', font: { size: 10 } };
+    base.title = { display: true, text: 'f(x)', color: '#6b7280', font: { size: 13 } };
   }
   return base;
 }
@@ -1905,7 +1905,7 @@ function renderChart(history, methodName) {
       plugins: {
         legend: { display: false },
         title:  { display: true, text: 'Norma del gradiente  ||Gf||',
-                  color: TEXT, font: { size: 11, weight: 'bold' } },
+                  color: TEXT, font: { size: 16, weight: 'bold' } },
         tooltip: { callbacks: {
           label: ctx => '||Gf|| = ' + Number(ctx.parsed.y).toExponential(3),
         }},
@@ -1934,7 +1934,7 @@ function renderChart(history, methodName) {
       plugins: {
         legend: { display: false },
         title:  { display: true, text: 'Valor de la funcion  f(x)',
-                  color: TEXT, font: { size: 11, weight: 'bold' } },
+                  color: TEXT, font: { size: 16, weight: 'bold' } },
         tooltip: { callbacks: {
           label: ctx => 'f(x) = ' + Number(ctx.parsed.y).toPrecision(5),
         }},
@@ -1986,7 +1986,7 @@ function renderComparisonChart(results) {
 
   const TEXT = '#2d2b55';
   const leg  = { display: true, position: 'top',
-    labels: { color: TEXT, font: { size: 9 }, boxWidth: 14, padding: 10 } };
+    labels: { color: TEXT, font: { size: 12 }, boxWidth: 16, padding: 12 } };
 
   const cv3 = _prepCanvas('cmp-chart-1');
   const cv4 = _prepCanvas('cmp-chart-2');
@@ -1999,7 +1999,7 @@ function renderComparisonChart(results) {
       animation: false,
       plugins: { legend: leg,
         title: { display: true, text: 'Norma del gradiente  ||Gf||',
-                 color: TEXT, font: { size: 11, weight: 'bold' } } },
+                 color: TEXT, font: { size: 16, weight: 'bold' } } },
       scales: { x: _mkXAxis(), y: _mkYAxis(true) },
     },
   });
@@ -2012,7 +2012,7 @@ function renderComparisonChart(results) {
       animation: false,
       plugins: { legend: leg,
         title: { display: true, text: 'Valor de la funcion  f(x)',
-                 color: TEXT, font: { size: 11, weight: 'bold' } } },
+                 color: TEXT, font: { size: 16, weight: 'bold' } } },
       scales: { x: _mkXAxis(), y: _mkYAxis(false) },
     },
   });
