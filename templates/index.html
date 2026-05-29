@@ -1376,7 +1376,8 @@ async function run() {
     });
     const data = await resp.json();
     if (data.error) { showAlert(data.error); return; }
-    render(data, p);
+    try { render(data, p); }
+    catch(e) { console.error('Render error:', e); showAlert('Error al mostrar resultados: ' + e.message); }
   } catch(e) {
     showAlert('Error de conexión: ' + e.message);
   } finally {
@@ -1416,13 +1417,16 @@ function render(d, p) {
   $('r-tol').textContent   = tolUsed;
   $('r-xopt').textContent  = fmtVec(d.x_opt);
 
-  renderChart(d.history, d.method_name);
-
+  // ── History table (rendered first — independent of chart) ────────
   const tbody = $('r-tbody'); tbody.innerHTML = '';
   (d.history||[]).forEach(row => {
     const tr = document.createElement('tr');
-    const xs = row.x.map(v=>fmt(v,5)).join(', ');
-    tr.innerHTML = `<td>${row.k}</td><td>[${xs}]</td><td>${fmt(row.f,6)}</td><td>${fmt(row.grad_norm,4)}</td>`;
+    try {
+      const xs = Array.isArray(row.x) ? row.x.map(v=>fmt(v,5)).join(', ') : String(row.x??'');
+      tr.innerHTML = `<td>${row.k}</td><td>[${xs}]</td><td>${fmt(row.f,6)}</td><td>${fmt(row.grad_norm,4)}</td>`;
+    } catch(_) {
+      tr.innerHTML = `<td>${row.k}</td><td>—</td><td>—</td><td>—</td>`;
+    }
     tbody.appendChild(tr);
   });
   const shown = (d.history||[]).length;
@@ -1430,7 +1434,11 @@ function render(d, p) {
     ? `Mostrando primeras ${shown} de ${d.iterations} iteraciones`
     : `Total: ${shown} iteración${shown!==1?'es':''}`;
 
-  // Contour animation (n=2 only)
+  // ── Chart (after table — errors here never block the table) ──────
+  try { renderChart(d.history, d.method_name); }
+  catch(e) { console.error('Chart render error:', e); }
+
+  // ── Contour animation (n=2 only) ─────────────────────────────────
   if (p.n === 2 && d.history && d.history.length) {
     const histories = {};
     histories[mk] = d.history;
@@ -1460,7 +1468,8 @@ async function compare() {
     });
     const data = await resp.json();
     if (data.error) { showAlert(data.error); return; }
-    renderComparison(data, p);
+    try { renderComparison(data, p); }
+    catch(e) { console.error('Render error:', e); showAlert('Error al mostrar comparación: ' + e.message); }
   } catch(e) {
     showAlert('Error de conexión: ' + e.message);
   } finally {
@@ -1524,7 +1533,8 @@ function renderComparison(data, p) {
   $('cmp-sub').textContent =
     `f(x) = ${p.fn.slice(0,60)}${p.fn.length>60?'…':''} · x₀ = [${p.x0}] · ε = ${val('tol')}`;
 
-  renderComparisonChart(results);
+  try { renderComparisonChart(results); }
+  catch(e) { console.error('Comparison chart error:', e); }
 
   // Contour animation (n=2)
   if (p.n === 2) {
