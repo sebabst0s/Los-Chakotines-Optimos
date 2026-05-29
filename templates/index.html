@@ -743,17 +743,17 @@
   .dual-chart-wrap {
     display: none;
     grid-template-columns: 1fr 1fr;
-    gap: .9rem;
+    gap: 1.2rem;
     background: var(--inp);
     border: 1.5px solid var(--lav-m);
     border-radius: 12px;
-    padding: 1rem;
+    padding: 1.5rem;
     box-shadow: var(--sh-md);
   }
   .dual-chart-wrap.show { display: grid; }
   @media (max-width: 720px) { .dual-chart-wrap { grid-template-columns: 1fr; } }
-  /* No max-height — let Chart.js control canvas dimensions via aspectRatio */
-  .dual-chart-wrap canvas { display: block; width: 100% !important; }
+  /* maintainAspectRatio:false — height driven by CSS min-height */
+  .dual-chart-wrap canvas { display: block; width: 100% !important; min-height: 400px; }
   </style>
 </head>
 <body>
@@ -1841,21 +1841,22 @@ function _prepCanvas(id) {
 function _mkXAxis() {
   return {
     grid:  { color: '#e8e5f5' },
-    ticks: { color: '#6b7280', maxTicksLimit: 10, font: { size: 11 } },
-    title: { display: true, text: 'Iteracion', color: '#6b7280', font: { size: 13 } },
+    ticks: { color: '#6b7280', maxTicksLimit: 10, font: { size: 12 } },
+    title: { display: true, text: 'Iteracion', color: '#6b7280', font: { size: 14 } },
   };
 }
 
 function _mkYAxis(log) {
   const base = {
     grid:  { color: '#e8e5f5' },
-    ticks: { color: '#6b7280', font: { size: 11 } },
+    ticks: { color: '#6b7280', font: { size: 12 },
+             callback: val => Number(val).toExponential(2) },
   };
   if (log) {
     base.type = 'logarithmic';
-    base.title = { display: true, text: '||Gf(x)||', color: '#6b7280', font: { size: 13 } };
+    base.title = { display: true, text: '||Gf(x)||', color: '#6b7280', font: { size: 14 } };
   } else {
-    base.title = { display: true, text: 'f(x)', color: '#6b7280', font: { size: 13 } };
+    base.title = { display: true, text: 'f(x)', color: '#6b7280', font: { size: 14 } };
   }
   return base;
 }
@@ -1900,12 +1901,13 @@ function renderChart(history, methodName) {
       }],
     },
     options: {
-      responsive: true, maintainAspectRatio: true, aspectRatio: 2,
+      responsive: true, maintainAspectRatio: false,
       animation: false,
+      layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
       plugins: {
         legend: { display: false },
         title:  { display: true, text: 'Norma del gradiente  ||Gf||',
-                  color: TEXT, font: { size: 16, weight: 'bold' } },
+                  color: TEXT, font: { size: 18, weight: 'bold' } },
         tooltip: { callbacks: {
           label: ctx => '||Gf|| = ' + Number(ctx.parsed.y).toExponential(3),
         }},
@@ -1929,12 +1931,13 @@ function renderChart(history, methodName) {
       }],
     },
     options: {
-      responsive: true, maintainAspectRatio: true, aspectRatio: 2,
+      responsive: true, maintainAspectRatio: false,
       animation: false,
+      layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
       plugins: {
         legend: { display: false },
         title:  { display: true, text: 'Valor de la funcion  f(x)',
-                  color: TEXT, font: { size: 16, weight: 'bold' } },
+                  color: TEXT, font: { size: 18, weight: 'bold' } },
         tooltip: { callbacks: {
           label: ctx => 'f(x) = ' + Number(ctx.parsed.y).toPrecision(5),
         }},
@@ -1995,11 +1998,12 @@ function renderComparisonChart(results) {
     type: 'line',
     data: { labels, datasets: ds1 },
     options: {
-      responsive: true, maintainAspectRatio: true, aspectRatio: 2,
+      responsive: true, maintainAspectRatio: false,
       animation: false,
+      layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
       plugins: { legend: leg,
         title: { display: true, text: 'Norma del gradiente  ||Gf||',
-                 color: TEXT, font: { size: 16, weight: 'bold' } } },
+                 color: TEXT, font: { size: 18, weight: 'bold' } } },
       scales: { x: _mkXAxis(), y: _mkYAxis(true) },
     },
   });
@@ -2008,11 +2012,12 @@ function renderComparisonChart(results) {
     type: 'line',
     data: { labels, datasets: ds2 },
     options: {
-      responsive: true, maintainAspectRatio: true, aspectRatio: 2,
+      responsive: true, maintainAspectRatio: false,
       animation: false,
+      layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
       plugins: { legend: leg,
         title: { display: true, text: 'Valor de la funcion  f(x)',
-                 color: TEXT, font: { size: 16, weight: 'bold' } } },
+                 color: TEXT, font: { size: 18, weight: 'bold' } } },
       scales: { x: _mkXAxis(), y: _mkYAxis(false) },
     },
   });
