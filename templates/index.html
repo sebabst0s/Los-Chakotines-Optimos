@@ -747,13 +747,13 @@
     background: var(--inp);
     border: 1.5px solid var(--lav-m);
     border-radius: 12px;
-    padding: 1.5rem;
+    padding: 30px;
     box-shadow: var(--sh-md);
   }
   .dual-chart-wrap.show { display: grid; }
   @media (max-width: 720px) { .dual-chart-wrap { grid-template-columns: 1fr; } }
-  /* maintainAspectRatio:false — height driven by CSS min-height */
-  .dual-chart-wrap canvas { display: block; width: 100% !important; min-height: 400px; }
+  /* aspectRatio:1.8 in Chart.js options controls canvas proportions */
+  .dual-chart-wrap canvas { display: block; width: 100% !important; }
   </style>
 </head>
 <body>
@@ -1850,7 +1850,7 @@ function _mkYAxis(log) {
   const base = {
     grid:  { color: '#e8e5f5' },
     ticks: { color: '#6b7280', font: { size: 12 },
-             callback: val => Number(val).toExponential(2) },
+             callback: val => Number(val).toExponential(1) },
   };
   if (log) {
     base.type = 'logarithmic';
@@ -1901,13 +1901,14 @@ function renderChart(history, methodName) {
       }],
     },
     options: {
-      responsive: true, maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: true, aspectRatio: 1.8,
       animation: false,
       layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
       plugins: {
         legend: { display: false },
         title:  { display: true, text: 'Norma del gradiente  ||Gf||',
-                  color: TEXT, font: { size: 18, weight: 'bold' } },
+                  color: TEXT, font: { size: 18, weight: 'bold', family: 'Inter, sans-serif' },
+                  padding: { bottom: 15 } },
         tooltip: { callbacks: {
           label: ctx => '||Gf|| = ' + Number(ctx.parsed.y).toExponential(3),
         }},
@@ -1931,13 +1932,14 @@ function renderChart(history, methodName) {
       }],
     },
     options: {
-      responsive: true, maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: true, aspectRatio: 1.8,
       animation: false,
       layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
       plugins: {
         legend: { display: false },
         title:  { display: true, text: 'Valor de la funcion  f(x)',
-                  color: TEXT, font: { size: 18, weight: 'bold' } },
+                  color: TEXT, font: { size: 18, weight: 'bold', family: 'Inter, sans-serif' },
+                  padding: { bottom: 15 } },
         tooltip: { callbacks: {
           label: ctx => 'f(x) = ' + Number(ctx.parsed.y).toPrecision(5),
         }},
@@ -1998,12 +2000,13 @@ function renderComparisonChart(results) {
     type: 'line',
     data: { labels, datasets: ds1 },
     options: {
-      responsive: true, maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: true, aspectRatio: 1.8,
       animation: false,
       layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
       plugins: { legend: leg,
         title: { display: true, text: 'Norma del gradiente  ||Gf||',
-                 color: TEXT, font: { size: 18, weight: 'bold' } } },
+                 color: TEXT, font: { size: 18, weight: 'bold', family: 'Inter, sans-serif' },
+                 padding: { bottom: 15 } } },
       scales: { x: _mkXAxis(), y: _mkYAxis(true) },
     },
   });
@@ -2012,12 +2015,13 @@ function renderComparisonChart(results) {
     type: 'line',
     data: { labels, datasets: ds2 },
     options: {
-      responsive: true, maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: true, aspectRatio: 1.8,
       animation: false,
       layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
       plugins: { legend: leg,
         title: { display: true, text: 'Valor de la funcion  f(x)',
-                 color: TEXT, font: { size: 18, weight: 'bold' } } },
+                 color: TEXT, font: { size: 18, weight: 'bold', family: 'Inter, sans-serif' },
+                 padding: { bottom: 15 } } },
       scales: { x: _mkXAxis(), y: _mkYAxis(false) },
     },
   });
