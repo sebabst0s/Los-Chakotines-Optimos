@@ -1818,11 +1818,87 @@ class ContourAnimator {
     this.frame = 0;
   }
 
+  /* ── 5-point star at canvas position (cx,cy) ───────────────────── */
+  _drawStar(cx, cy, r, color) {
+    const ctx = this.ctx;
+    const inner = r * 0.42;
+    ctx.save();
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const angle = (i * Math.PI) / 5 - Math.PI / 2;
+      const rad   = i % 2 === 0 ? r : inner;
+      const x = cx + Math.cos(angle) * rad;
+      const y = cy + Math.sin(angle) * rad;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle   = color;
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth   = 1.8;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /* ── Label box: "Mínimo / (x, y)" ──────────────────────────────── */
+  _drawMinLabel(px, py, mx, my, color, idx, total) {
+    const ctx  = this.ctx;
+    const line1 = 'Mínimo';
+    const line2 = `(${mx.toFixed(3)}, ${my.toFixed(3)})`;
+
+    ctx.save();
+    ctx.font = 'bold 11px Inter, sans-serif';
+    const w1 = ctx.measureText(line1).width;
+    ctx.font = '10px Inter, sans-serif';
+    const w2 = ctx.measureText(line2).width;
+    const bw = Math.max(w1, w2) + 10;
+    const bh = 30;
+
+    // Fan labels vertically when methods share the same minimum
+    const dy   = (idx - (total - 1) / 2) * 34;
+    let   lx   = px + 14;
+    const ly   = py + dy - bh / 2;
+
+    // Flip to left if box would overflow right margin
+    if (lx + bw > this.W - this.M.right - 4) lx = px - 14 - bw;
+
+    // Background pill
+    ctx.fillStyle   = 'rgba(255,255,255,0.92)';
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = 1.8;
+    ctx.beginPath();
+    const r = 5;
+    ctx.moveTo(lx + r, ly);
+    ctx.lineTo(lx + bw - r, ly);
+    ctx.arcTo(lx + bw, ly, lx + bw, ly + r, r);
+    ctx.lineTo(lx + bw, ly + bh - r);
+    ctx.arcTo(lx + bw, ly + bh, lx + bw - r, ly + bh, r);
+    ctx.lineTo(lx + r, ly + bh);
+    ctx.arcTo(lx, ly + bh, lx, ly + bh - r, r);
+    ctx.lineTo(lx, ly + r);
+    ctx.arcTo(lx, ly, lx + r, ly, r);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Text
+    ctx.textAlign    = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle    = color;
+    ctx.font         = 'bold 11px Inter, sans-serif';
+    ctx.fillText(line1, lx + 5, ly + 4);
+    ctx.fillStyle = '#444';
+    ctx.font      = '10px Inter, sans-serif';
+    ctx.fillText(line2, lx + 5, ly + 17);
+    ctx.restore();
+  }
+
   draw() {
     if (!this._bg) return;
     const ctx = this.ctx;
     ctx.putImageData(this._bg, 0, 0);
 
+    // ── Animated trails + current-position markers ────────────────
     this.paths.forEach(path => {
       const end = Math.min(this.frame + 1, path.points.length);
       if (end < 1) return;
@@ -1852,6 +1928,16 @@ class ContourAnimator {
       ctx.arc(this._px(cx), this._py(cy), 7, 0, Math.PI * 2);
       ctx.fillStyle = path.color; ctx.fill();
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.5; ctx.stroke(); ctx.restore();
+    });
+
+    // ── Minimum markers (always visible, drawn on top of trails) ──
+    const total = this.paths.length;
+    this.paths.forEach((path, idx) => {
+      if (!path.points.length) return;
+      const [mx, my] = path.points[path.points.length - 1];
+      const px = this._px(mx), py = this._py(my);
+      this._drawStar(px, py, 11, path.color);
+      this._drawMinLabel(px, py, mx, my, path.color, idx, total);
     });
 
     // Frame counter overlay
