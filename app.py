@@ -383,6 +383,77 @@ def compare():
         return jsonify(error=str(exc), detail=traceback.format_exc()), 500
 
 
+# ── Groq AI analyst ──────────────────────────────────────────────────────────
+# Set your Groq API key in the GROQ_API_KEY environment variable.
+# Get a free key at: https://console.groq.com/keys
+GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '')
+
+GROQ_SYSTEM_PROMPT = (
+    'Eres un profesor experto en métodos de optimización numérica. '
+    'Analiza los resultados de tres algoritmos (Gradiente Descendente, '
+    'Gradiente Conjugado y Método de Newton) evaluados con las condiciones de Wolfe. '
+    'Basado en los datos provistos, redacta un solo párrafo corto (máximo 4 líneas) '
+    'concluyendo qué método fue el más eficiente, justificando matemáticamente por qué '
+    '(ej. uso de la curvatura en Newton), e indicando si algún método sufrió de '
+    'oscilaciones o estancamiento.'
+)
+
+
+@app.route('/api/analizar', methods=['POST'])
+def analizar():
+    try:
+        if not GROQ_API_KEY:
+            return jsonify(
+                error='API key de Groq no configurada. '
+                      'Define la variable de entorno GROQ_API_KEY.'
+            ), 503
+
+        data    = request.get_json(force=True)
+        results = data.get('results', {})
+        if not results:
+            return jsonify(error='No se recibieron resultados para analizar.'), 400
+
+        name_map = {
+            'gradient':  'Gradiente Descendente',
+            'conjugate': 'Gradiente Conjugado',
+            'newton':    'Método de Newton',
+        }
+        lines = []
+        for key in ('gradient', 'conjugate', 'newton'):
+            r = results.get(key)
+            if not r:
+                continue
+            name = name_map.get(key, key)
+            lines.append(
+                f'- {name}: {r.get("iterations")} iteraciones, '
+                f'f(x*)={float(r.get("f_opt", 0)):.6g}, '
+                f'||∇f||={float(r.get("final_gn", 0)):.6g}, '
+                f'convergió={r.get("converged", False)}'
+            )
+
+        user_prompt = 'Resultados de la optimización:\n' + '\n'.join(lines)
+
+        from groq import Groq
+        client   = Groq(api_key=GROQ_API_KEY)
+        response = client.chat.completions.create(
+            model    = 'llama-3.1-8b-instant',
+            messages = [
+                {'role': 'system', 'content': GROQ_SYSTEM_PROMPT},
+                {'role': 'user',   'content': user_prompt},
+            ],
+            max_tokens  = 300,
+            temperature = 0.4,
+        )
+        return jsonify(
+            success  = True,
+            analysis = response.choices[0].message.content.strip(),
+        )
+
+    except Exception as exc:
+        import traceback
+        return jsonify(error=str(exc), detail=traceback.format_exc()), 500
+
+
 @app.route('/contour', methods=['POST'])
 def contour():
     try:

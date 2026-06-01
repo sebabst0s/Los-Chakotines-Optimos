@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&display=swap" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 
   <style>
   /* ════════════════════════════════════════════════════════════════════
@@ -752,8 +752,8 @@
   }
   .dual-chart-wrap.show { display: grid; }
   @media (max-width: 720px) { .dual-chart-wrap { grid-template-columns: 1fr; } }
-  /* aspectRatio:1.8 in Chart.js options controls canvas proportions */
-  .dual-chart-wrap canvas { display: block; width: 100% !important; }
+  /* Plotly fills its container div — just set width */
+  .dual-chart-wrap > div { width: 100%; }
 
   /* ── Winner card ─────────────────────────────────────────────── */
   .winner-card {
@@ -768,9 +768,31 @@
   .winner-card .w-detail { font-size: .9rem; color: var(--muted); line-height: 1.7;
                            font-family: var(--mono); }
 
-  /* ── Comparison charts: stacked, 350 px each ─────────────────── */
+  /* ── Comparison charts: stacked ──────────────────────────────── */
   #cmp-charts { grid-template-columns: 1fr; }
-  #cmp-charts canvas { height: 350px; max-height: 350px; }
+
+  /* ── AI Analyst ──────────────────────────────────────────────── */
+  .ai-analyst-section { margin-top: 1.3rem; }
+  .btn-analizar {
+    width: 100%; padding: .75rem 1.2rem;
+    background: linear-gradient(135deg, #7c3aed, #0ea5e9);
+    color: #fff; border: none; border-radius: 10px;
+    font-size: .95rem; font-weight: 700; font-family: var(--sans);
+    cursor: pointer; transition: opacity .2s;
+  }
+  .btn-analizar:hover { opacity: .85; }
+  .btn-analizar:disabled { opacity: .5; cursor: default; }
+  .ai-card {
+    margin-top: .9rem; padding: 1.2rem 1.4rem;
+    background: linear-gradient(135deg, #faf5ff, #e0f2fe);
+    border: 1.5px solid #c4b5fd; border-radius: 12px;
+    font-size: .92rem; line-height: 1.75; color: #2d2b55;
+  }
+  .ai-label {
+    font-size: .72rem; font-weight: 800; color: #7c3aed;
+    text-transform: uppercase; letter-spacing: .08em; margin-bottom: .6rem;
+  }
+  .ai-loading { color: #9ca3af; font-style: italic; }
   </style>
 </head>
 <body>
@@ -1024,8 +1046,8 @@
           <div class="chart-wrap">
             <div class="slbl"><span class="dot dot-lav"></span> Gráfico de convergencia</div>
             <div class="dual-chart-wrap" id="r-charts">
-              <canvas id="r-chart-1"></canvas>
-              <canvas id="r-chart-2"></canvas>
+              <div id="r-chart-1"></div>
+              <div id="r-chart-2"></div>
             </div>
           </div>
           <hr class="div">
@@ -1070,10 +1092,19 @@
           <div class="chart-wrap">
             <div class="slbl"><span class="dot dot-lav"></span> Convergencia comparada</div>
             <div class="dual-chart-wrap" id="cmp-charts">
-              <canvas id="cmp-chart-1"></canvas>
-              <canvas id="cmp-chart-2"></canvas>
+              <div id="cmp-chart-1"></div>
+              <div id="cmp-chart-2"></div>
             </div>
           </div>
+
+          <!-- AI Analyst section -->
+          <div class="ai-analyst-section">
+            <button id="btn-analizar" class="btn-analizar" onclick="generarAnalisis()" disabled>
+              🤖 Generar Análisis Inteligente
+            </button>
+            <div id="ai-result" class="ai-card" style="display:none;"></div>
+          </div>
+
         </div><!-- /cmp-results -->
 
       </div>
@@ -1502,6 +1533,14 @@ function renderComparison(data, p) {
   showSection('compare');
 
   const results = data.results;
+
+  // Store for AI analyst
+  _lastCompareResults = results;
+  const btnAnalizar = $('btn-analizar');
+  if (btnAnalizar) { btnAnalizar.disabled = false; }
+  // Reset analyst card
+  const aiCard = $('ai-result');
+  if (aiCard) { aiCard.style.display = 'none'; aiCard.innerHTML = ''; }
   const MINFO = {
     gradient:  { name:'⛰️ Gradiente Descendente', cls:'cmp-grad' },
     conjugate: { name:'🔀 Gradiente Conjugado',   cls:'cmp-conj' },
@@ -2146,253 +2185,192 @@ function animSpeed(v) {
 
 
 /* ══════════════════════════════════════════════════════════════════
-   CHART.JS — Convergence charts
-   Uses labels[]+data[] format (most reliable in all environments).
-   No {x,y} objects, no animation, explicit scale types.
+   PLOTLY.JS — Convergence charts
+   interactive: zoom (scroll), pan, toolbar, hover tooltips.
+   Config: { responsive:true, displayModeBar:true, scrollZoom:true }
 ══════════════════════════════════════════════════════════════════ */
-let _chart1 = null, _chart2 = null;
-let _cmpC1  = null, _cmpC2  = null;
 
-function _chartAvailable() {
-  if (typeof Chart === 'undefined') {
-    console.error('[Charts] Chart.js no cargó del CDN. Verifica la conexión.');
-    return false;
-  }
-  return true;
-}
+// Shared Plotly config — toolbar + scroll-zoom + no Plotly logo
+const PLOTLY_CFG = {
+  responsive:    true,
+  displayModeBar: true,
+  scrollZoom:    true,
+  displaylogo:   false,
+  modeBarButtonsToRemove: ['select2d', 'lasso2d', 'autoScale2d'],
+};
 
-// Pre-warm canvas context with willReadFrequently to suppress Chrome warning
-// and enable faster getImageData (used by Chart.js hit detection).
-function _prepCanvas(id) {
-  const cv = $(id);
-  if (cv) cv.getContext('2d', { willReadFrequently: true });
-  return cv;
-}
-
-function _mkXAxis() {
+// Shared layout factory
+function _mkLayout(title, ytitle, logY, showLegend) {
   return {
-    grid:  { color: '#e8e5f5' },
-    ticks: { color: '#6b7280', maxTicksLimit: 10, font: { size: 12 } },
-    title: { display: true, text: 'Iteracion', color: '#6b7280', font: { size: 14 } },
+    height: 360,
+    margin: { t: 60, r: 24, b: 54, l: 72 },
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    plot_bgcolor:  '#f8f6ff',
+    font: { family: 'Inter, sans-serif', size: 12, color: '#6b7280' },
+    title: {
+      text: '<b>' + title + '</b>',
+      font: { size: 17, color: '#2d2b55', family: 'Inter, sans-serif' },
+      pad:  { b: 8 },
+    },
+    xaxis: {
+      title: { text: 'Iteración', font: { size: 13 }, standoff: 6 },
+      gridcolor: '#e8e5f5', zeroline: false, linecolor: '#d1d5db',
+    },
+    yaxis: {
+      title: { text: ytitle, font: { size: 13 }, standoff: 6 },
+      type:      logY ? 'log' : 'linear',
+      tickformat: '.1e',
+      gridcolor: '#e8e5f5', zeroline: false, linecolor: '#d1d5db',
+    },
+    showlegend: !!showLegend,
+    legend: showLegend ? {
+      x: 1, xanchor: 'right', y: 1,
+      font: { size: 11 }, bgcolor: 'rgba(255,255,255,.8)',
+      bordercolor: '#e8e5f5', borderwidth: 1,
+    } : {},
   };
-}
-
-function _mkYAxis(log) {
-  const base = {
-    grid:  { color: '#e8e5f5' },
-    ticks: { color: '#6b7280', font: { size: 12 },
-             callback: val => Number(val).toExponential(1) },
-  };
-  if (log) {
-    base.type = 'logarithmic';
-    base.title = { display: true, text: '||Gf(x)||', color: '#6b7280', font: { size: 14 } };
-  } else {
-    base.title = { display: true, text: 'f(x)', color: '#6b7280', font: { size: 14 } };
-  }
-  return base;
 }
 
 function renderChart(history, methodName) {
-  if (_chart1) { _chart1.destroy(); _chart1 = null; }
-  if (_chart2) { _chart2.destroy(); _chart2 = null; }
-  if (!_chartAvailable() || !history || !history.length) return;
+  if (!history || !history.length) return;
 
-  // Labels as strings (category scale — most reliable in all Chart.js environments)
-  const labels = history.map(h => String(h.k));
-  // Clamp grad_norm to finite positive values for log scale
+  const iters  = history.map(h => h.k);
   const gnorms = history.map(h => {
     const g = h.grad_norm;
     return (Number.isFinite(g) && g > 0) ? g : 1e-15;
   });
-  const fvals = history.map(h => (Number.isFinite(h.f) ? h.f : 0));
-  const nr    = history.length > 100 ? 0 : 3;
-
-  console.log('[Chart] labels:', labels, 'gnorms:', gnorms, 'fvals:', fvals);
+  const fvals  = history.map(h => Number.isFinite(h.f) ? h.f : null);
 
   $('r-charts').classList.add('show');
 
-  const TEXT = '#2d2b55';
+  try {
+    Plotly.newPlot('r-chart-1',
+      [{ x: iters, y: gnorms, type: 'scatter', mode: 'lines',
+         line: { color: '#7c3aed', width: 2.5 }, name: '||∇f||',
+         hovertemplate: 'k=%{x}<br>||∇f||=%{y:.3e}<extra></extra>' }],
+      _mkLayout('Norma del gradiente &nbsp;||∇f||', '||∇f||', true, false),
+      PLOTLY_CFG
+    );
+  } catch(e) { console.error('r-chart-1:', e); }
 
-  // Pre-warm contexts with willReadFrequently before Chart.js takes over
-  const cv1 = _prepCanvas('r-chart-1');
-  const cv2 = _prepCanvas('r-chart-2');
-
-  _chart1 = new Chart(cv1, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [{
-        data:            gnorms,
-        borderColor:     '#7c3aed',
-        backgroundColor: 'rgba(124,58,237,0.15)',
-        fill:            false,   // false on log scale — fill to y=0 is undefined on log
-        pointRadius:     nr,
-        borderWidth:     2.5,
-        tension:         0,
-      }],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: true, aspectRatio: 1.8,
-      animation: false,
-      layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
-      plugins: {
-        legend: { display: false },
-        title:  { display: true, text: 'Norma del gradiente  ||Gf||',
-                  color: TEXT, font: { size: 18, weight: 'bold', family: 'Inter, sans-serif' },
-                  padding: { bottom: 15 } },
-        tooltip: { callbacks: {
-          label: ctx => '||Gf|| = ' + Number(ctx.parsed.y).toExponential(3),
-        }},
-      },
-      scales: { x: _mkXAxis(), y: _mkYAxis(true) },
-    },
-  });
-
-  _chart2 = new Chart(cv2, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [{
-        data:            fvals,
-        borderColor:     '#f97316',
-        backgroundColor: 'rgba(249,115,22,0.15)',
-        fill:            true,
-        pointRadius:     nr,
-        borderWidth:     2.5,
-        tension:         0,
-      }],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: true, aspectRatio: 1.8,
-      animation: false,
-      layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
-      plugins: {
-        legend: { display: false },
-        title:  { display: true, text: 'Valor de la funcion  f(x)',
-                  color: TEXT, font: { size: 18, weight: 'bold', family: 'Inter, sans-serif' },
-                  padding: { bottom: 15 } },
-        tooltip: { callbacks: {
-          label: ctx => 'f(x) = ' + Number(ctx.parsed.y).toPrecision(5),
-        }},
-      },
-      scales: { x: _mkXAxis(), y: _mkYAxis(false) },
-    },
-  });
+  try {
+    Plotly.newPlot('r-chart-2',
+      [{ x: iters, y: fvals, type: 'scatter', mode: 'lines',
+         line: { color: '#f97316', width: 2.5 },
+         fill: 'tozeroy', fillcolor: 'rgba(249,115,22,.12)',
+         name: 'f(x)',
+         hovertemplate: 'k=%{x}<br>f(x)=%{y:.5g}<extra></extra>' }],
+      _mkLayout('Valor de la función &nbsp;f(x)', 'f(x)', false, false),
+      PLOTLY_CFG
+    );
+  } catch(e) { console.error('r-chart-2:', e); }
 }
 
 function renderComparisonChart(results) {
-  if (_cmpC1) { _cmpC1.destroy(); _cmpC1 = null; }
-  if (_cmpC2) { _cmpC2.destroy(); _cmpC2 = null; }
-  if (!_chartAvailable()) return;
-
   const CMP = {
     gradient:  { color: '#7c3aed', label: 'Gradiente Descendente' },
     conjugate: { color: '#0ea5e9', label: 'Gradiente Conjugado'   },
     newton:    { color: '#f43f5e', label: 'Método de Newton'      },
   };
 
-  let maxLen = 0;
-  ['gradient','conjugate','newton'].forEach(k => {
-    const r = results[k];
-    if (r && r.history) maxLen = Math.max(maxLen, r.history.length);
-  });
-  if (!maxLen) return;
-
-  // String labels for category x-axis
-  const labels = Array.from({ length: maxLen }, (_, i) => String(i));
-  const ds1 = [], ds2 = [];
+  const traces1 = [], traces2 = [];
 
   ['gradient','conjugate','newton'].forEach(k => {
     const r = results[k];
-    if (!r || !r.history || !r.history.length) return;
+    if (!r || r.error || !r.history || !r.history.length) return;
     const c = CMP[k], hist = r.history;
-    ds1.push({ label: c.label, borderColor: c.color,
-      data: labels.map((_, i) => i < hist.length
-        ? (Number.isFinite(hist[i].grad_norm) && hist[i].grad_norm > 0 ? hist[i].grad_norm : 1e-15)
-        : null),
-      pointRadius: 0, borderWidth: 2, spanGaps: false, fill: false });
-    ds2.push({ label: c.label, borderColor: c.color,
-      data: labels.map((_, i) => i < hist.length
-        ? (Number.isFinite(hist[i].f) ? hist[i].f : null)
-        : null),
-      pointRadius: 0, borderWidth: 2, spanGaps: false, fill: false });
+    const iters = hist.map(h => h.k);
+
+    traces1.push({
+      x: iters,
+      y: hist.map(h => (Number.isFinite(h.grad_norm) && h.grad_norm > 0) ? h.grad_norm : 1e-15),
+      type: 'scatter', mode: 'lines',
+      line: { color: c.color, width: 2 }, name: c.label,
+      hovertemplate: c.label + '<br>k=%{x}<br>||∇f||=%{y:.3e}<extra></extra>',
+    });
+
+    traces2.push({
+      x: iters,
+      y: hist.map(h => Number.isFinite(h.f) ? h.f : null),
+      type: 'scatter', mode: 'lines',
+      line: { color: c.color, width: 2 }, name: c.label,
+      hovertemplate: c.label + '<br>k=%{x}<br>f(x)=%{y:.5g}<extra></extra>',
+    });
   });
 
+  if (!traces1.length) return;
   $('cmp-charts').classList.add('show');
 
-  const TEXT = '#2d2b55';
-  const leg  = { display: true, position: 'top',
-    labels: { color: TEXT, font: { size: 12 }, boxWidth: 16, padding: 12 } };
-
-  const cv3 = _prepCanvas('cmp-chart-1');
-  const cv4 = _prepCanvas('cmp-chart-2');
-
-  // Set explicit canvas dimensions before Chart.js reads them.
-  // maintainAspectRatio:false requires the canvas to already have a valid height;
-  // CSS alone may not be applied yet right after classList.add('show').
-  [cv3, cv4].forEach(cv => {
-    if (!cv) return;
-    cv.style.height = '350px';
-    cv.height = 350;
-    cv.width  = cv.parentElement ? (cv.parentElement.clientWidth || 600) : 600;
-    // Clear any leftover error messages from a previous failed render
-    const next = cv.nextElementSibling;
-    if (next && next.classList && next.classList.contains('chart-err')) next.remove();
-    cv.style.display = '';
-  });
-
-  // Helper: hide canvas and show an inline error message
-  function _chartErr(cv, msg) {
-    cv.style.display = 'none';
-    const d = document.createElement('div');
-    d.className = 'chart-err';
-    d.style.cssText = 'color:#b91c1c;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;' +
-                      'padding:1rem;text-align:center;font-size:.88rem;margin:.5rem 0;';
-    d.textContent = msg || 'No se pudo renderizar el gráfico.';
-    cv.parentNode.insertBefore(d, cv.nextSibling);
+  try {
+    Plotly.newPlot('cmp-chart-1', traces1,
+      _mkLayout('Norma del gradiente &nbsp;||∇f||', '||∇f||', true, true),
+      PLOTLY_CFG);
+  } catch(e) {
+    console.error('cmp-chart-1:', e);
+    const el = $('cmp-chart-1');
+    if (el) el.innerHTML = `<p style="color:#b91c1c;padding:1rem">Error: ${e.message}</p>`;
   }
 
   try {
-    _cmpC1 = new Chart(cv3, {
-      type: 'line',
-      data: { labels, datasets: ds1 },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        animation: false,
-        layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
-        plugins: { legend: leg,
-          title: { display: true, text: 'Norma del gradiente  ||∇f||',
-                   color: TEXT, font: { size: 18, weight: 'bold', family: 'Inter, sans-serif' },
-                   padding: { bottom: 15 } } },
-        scales: { x: _mkXAxis(), y: _mkYAxis(true) },
-      },
-    });
+    Plotly.newPlot('cmp-chart-2', traces2,
+      _mkLayout('Valor de la función &nbsp;f(x)', 'f(x)', false, true),
+      PLOTLY_CFG);
   } catch(e) {
-    console.error('cmp-chart-1 error:', e);
-    _chartErr(cv3, 'Error al renderizar gráfico de gradiente: ' + e.message);
-  }
-
-  try {
-    _cmpC2 = new Chart(cv4, {
-      type: 'line',
-      data: { labels, datasets: ds2 },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        animation: false,
-        layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
-        plugins: { legend: leg,
-          title: { display: true, text: 'Valor de la función  f(x)',
-                   color: TEXT, font: { size: 18, weight: 'bold', family: 'Inter, sans-serif' },
-                   padding: { bottom: 15 } } },
-        scales: { x: _mkXAxis(), y: _mkYAxis(false) },
-      },
-    });
-  } catch(e) {
-    console.error('cmp-chart-2 error:', e);
-    _chartErr(cv4, 'Error al renderizar gráfico de f(x): ' + e.message);
+    console.error('cmp-chart-2:', e);
+    const el = $('cmp-chart-2');
+    if (el) el.innerHTML = `<p style="color:#b91c1c;padding:1rem">Error: ${e.message}</p>`;
   }
 }
 
+
+/* ── AI Analyst ──────────────────────────────────────────────────── */
+let _lastCompareResults = null;
+
+async function generarAnalisis() {
+  if (!_lastCompareResults) return;
+  const btn  = $('btn-analizar');
+  const card = $('ai-result');
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Analizando...';
+  card.style.display = 'block';
+  card.innerHTML = '<div class="ai-label">🤖 Agente Analista</div>'
+    + '<p class="ai-loading">Generando análisis con IA…</p>';
+
+  try {
+    const payload = { results: {} };
+    ['gradient', 'conjugate', 'newton'].forEach(k => {
+      const r = _lastCompareResults[k];
+      if (r && !r.error) {
+        payload.results[k] = {
+          iterations: r.iterations, f_opt: r.f_opt,
+          final_gn:   r.final_gn,   converged: r.converged,
+        };
+      }
+    });
+
+    const resp = await fetch('/api/analizar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+
+    if (data.error) {
+      card.innerHTML = '<div class="ai-label">🤖 Agente Analista</div>'
+        + `<p style="color:#b91c1c"><strong>Error:</strong> ${data.error}</p>`;
+    } else {
+      card.innerHTML = '<div class="ai-label">🤖 Agente Analista</div>'
+        + `<p>${data.analysis.replace(/\n/g, '<br>')}</p>`;
+    }
+  } catch(e) {
+    card.innerHTML = '<div class="ai-label">🤖 Agente Analista</div>'
+      + `<p style="color:#b91c1c">Error de conexión: ${e.message}</p>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🤖 Generar Análisis Inteligente';
+  }
+}
 
 /* ── Keyboard shortcuts ──────────────────────────────────────────── */
 document.addEventListener('keydown', e => {
