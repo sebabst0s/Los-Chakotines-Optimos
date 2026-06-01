@@ -754,6 +754,23 @@
   @media (max-width: 720px) { .dual-chart-wrap { grid-template-columns: 1fr; } }
   /* aspectRatio:1.8 in Chart.js options controls canvas proportions */
   .dual-chart-wrap canvas { display: block; width: 100% !important; }
+
+  /* ── Winner card ─────────────────────────────────────────────── */
+  .winner-card {
+    display: flex; align-items: flex-start; gap: 1rem;
+    background: linear-gradient(135deg, #7c3aed18 0%, #0ea5e918 100%);
+    border: 2px solid #7c3aed44;
+    border-radius: 14px; padding: 1.2rem 1.5rem; margin-bottom: 1rem;
+  }
+  .winner-card .w-trophy { font-size: 2.2rem; flex-shrink: 0; line-height: 1.1; }
+  .winner-card .w-body   { color: var(--text); }
+  .winner-card .w-method { font-size: 1.08rem; font-weight: 800; color: #5b21b6; margin-bottom: 4px; }
+  .winner-card .w-detail { font-size: .9rem; color: var(--muted); line-height: 1.7;
+                           font-family: var(--mono); }
+
+  /* ── Comparison charts: stacked, 400 px each ─────────────────── */
+  #cmp-charts { grid-template-columns: 1fr; }
+  #cmp-charts canvas { min-height: 400px; }
   </style>
 </head>
 <body>
@@ -776,9 +793,9 @@
       y condiciones de Wolfe
     </p>
     <div class="s-methods">
-      <span class="s-pill sp-1">⛰️ Steepest Descent</span>
-      <span class="s-pill sp-2">🔀 Fletcher-Reeves</span>
-      <span class="s-pill sp-3">🎯 Newton</span>
+      <span class="s-pill sp-1">⛰️ Gradiente Descendente</span>
+      <span class="s-pill sp-2">🔀 Gradiente Conjugado</span>
+      <span class="s-pill sp-3">🎯 Método de Newton</span>
     </div>
     <div class="s-bottom-row">
       <button class="s-btn" onclick="enterApp()">
@@ -891,9 +908,9 @@
           <div class="fgroup">
             <label>Método de optimización</label>
             <select id="method" onchange="updateMethodDesc()">
-              <option value="gradient">Gradiente descendente (Steepest Descent)</option>
-              <option value="conjugate">Gradiente conjugado (Fletcher-Reeves)</option>
-              <option value="newton">Método de Newton (Hessiano numérico)</option>
+              <option value="gradient">Gradiente Descendente</option>
+              <option value="conjugate">Gradiente Conjugado</option>
+              <option value="newton">Método de Newton</option>
             </select>
             <div id="method-desc" class="mdb mdb-p">
               <span class="mdb-icon">⛰️</span>
@@ -1030,6 +1047,8 @@
               <div class="cmp-sub" id="cmp-sub">Mismos parámetros, misma función, misma x₀</div>
             </div>
           </div>
+
+          <div id="cmp-winner"></div>
 
           <div class="cmp-tbl-wrap">
             <table class="cmp-tbl">
@@ -1237,10 +1256,10 @@ document.getElementById('app').style.display = 'none';
 const METHOD_DATA = {
   gradient:  { icon:'⛰️', cls:'mdb-p', bCls:'mb-lav',
     desc:'Sigue la dirección de máximo descenso (−∇f) en cada paso. Simple y robusto, ideal para empezar. Puede ser lento en valles muy estrechos.',
-    sub:'Steepest Descent con búsqueda de línea Wolfe' },
+    sub:'Gradiente Descendente con búsqueda de línea Wolfe' },
   conjugate: { icon:'🔀', cls:'mdb-b', bCls:'mb-sky',
     desc:'Combina la dirección actual con las anteriores usando β de Fletcher-Reeves. Más eficiente que el gradiente puro, especialmente en funciones cuadráticas.',
-    sub:'Fletcher-Reeves con reinicio cada n pasos' },
+    sub:'Gradiente Conjugado (Fletcher-Reeves) con reinicio cada n pasos' },
   newton:    { icon:'🎯', cls:'mdb-k', bCls:'mb-rose',
     desc:'Usa el Hessiano numérico para calcular la dirección de Newton (−H⁻¹∇f). Convergencia cuadrática cerca del mínimo. Mucho menos iteraciones.',
     sub:'Hessiano numérico + Cholesky modificado' },
@@ -1390,8 +1409,8 @@ async function run() {
 function render(d, p) {
   showSection('single');
 
-  const mk = d.method_name.includes('Steepest') ? 'gradient'
-           : d.method_name.includes('Fletcher')  ? 'conjugate' : 'newton';
+  const mk = d.method_name.includes('Descendente') ? 'gradient'
+           : d.method_name.includes('Conjugado')   ? 'conjugate' : 'newton';
   const m = METHOD_DATA[mk];
 
   const ban = $('r-mbanner');
@@ -1484,9 +1503,14 @@ function renderComparison(data, p) {
 
   const results = data.results;
   const MINFO = {
-    gradient:  { name:'⛰️ Steepest Descent', cls:'cmp-grad' },
-    conjugate: { name:'🔀 Fletcher-Reeves',  cls:'cmp-conj' },
-    newton:    { name:'🎯 Newton',            cls:'cmp-newt' },
+    gradient:  { name:'⛰️ Gradiente Descendente', cls:'cmp-grad' },
+    conjugate: { name:'🔀 Gradiente Conjugado',   cls:'cmp-conj' },
+    newton:    { name:'🎯 Método de Newton',       cls:'cmp-newt' },
+  };
+  const MSHORT = {
+    gradient: 'Gradiente Descendente',
+    conjugate: 'Gradiente Conjugado',
+    newton: 'Método de Newton',
   };
 
   // Find winners
@@ -1497,6 +1521,26 @@ function renderComparison(data, p) {
   const winFopt   = convd.reduce((b,[k,v])=>(!b||v.f_opt<results[b].f_opt)?k:b, null);
   const maxIter   = Math.max(...entries.map(([,v])=>v.iterations||1));
   const maxTime   = Math.max(...entries.map(([,v])=>v.time_ms||1));
+
+  // ── Winner card ───────────────────────────────────────────────────
+  const bestKey = winFopt || entries.reduce((b,[k,v])=>(!b||v.f_opt<results[b].f_opt)?k:b, null);
+  const winEl   = $('cmp-winner');
+  if (bestKey && winEl) {
+    const r    = results[bestKey];
+    const name = MSHORT[bestKey];
+    const xstr = (r.x_opt||[]).map(v=>fmt(v,4)).join(', ');
+    winEl.innerHTML = `
+      <div class="winner-card">
+        <span class="w-trophy">🏆</span>
+        <div class="w-body">
+          <div class="w-method">${name} encontró el mínimo</div>
+          <div class="w-detail">
+            x* = [${xstr}] &nbsp;·&nbsp; f(x*) = ${fmt(r.f_opt)}
+            &nbsp;·&nbsp; ${r.iterations} iteraciones
+          </div>
+        </div>
+      </div>`;
+  } else if (winEl) { winEl.innerHTML = ''; }
 
   const tbody = $('cmp-tbody'); tbody.innerHTML = '';
   ['gradient','conjugate','newton'].forEach(key => {
@@ -2030,7 +2074,7 @@ async function triggerContour(fn, historiesMap) {
 
     // Build paths
     const COLORS = {gradient:'#7c3aed', conjugate:'#0ea5e9', newton:'#f43f5e'};
-    const LABELS = {gradient:'Steepest Descent', conjugate:'Fletcher-Reeves', newton:'Newton'};
+    const LABELS = {gradient:'Gradiente Descendente', conjugate:'Gradiente Conjugado', newton:'Método de Newton'};
     const pathsData = [];
     ['gradient','conjugate','newton'].forEach(k => {
       const hist = historiesMap[k];
@@ -2240,9 +2284,9 @@ function renderComparisonChart(results) {
   if (!_chartAvailable()) return;
 
   const CMP = {
-    gradient:  { color: '#7c3aed', label: 'Steepest Descent' },
-    conjugate: { color: '#0ea5e9', label: 'Fletcher-Reeves'  },
-    newton:    { color: '#f43f5e', label: 'Newton'           },
+    gradient:  { color: '#7c3aed', label: 'Gradiente Descendente' },
+    conjugate: { color: '#0ea5e9', label: 'Gradiente Conjugado'   },
+    newton:    { color: '#f43f5e', label: 'Método de Newton'      },
   };
 
   let maxLen = 0;
@@ -2285,11 +2329,11 @@ function renderComparisonChart(results) {
     type: 'line',
     data: { labels, datasets: ds1 },
     options: {
-      responsive: true, maintainAspectRatio: true, aspectRatio: 1.8,
+      responsive: true, maintainAspectRatio: false,
       animation: false,
       layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
       plugins: { legend: leg,
-        title: { display: true, text: 'Norma del gradiente  ||Gf||',
+        title: { display: true, text: 'Norma del gradiente  ||∇f||',
                  color: TEXT, font: { size: 18, weight: 'bold', family: 'Inter, sans-serif' },
                  padding: { bottom: 15 } } },
       scales: { x: _mkXAxis(), y: _mkYAxis(true) },
@@ -2300,11 +2344,11 @@ function renderComparisonChart(results) {
     type: 'line',
     data: { labels, datasets: ds2 },
     options: {
-      responsive: true, maintainAspectRatio: true, aspectRatio: 1.8,
+      responsive: true, maintainAspectRatio: false,
       animation: false,
       layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
       plugins: { legend: leg,
-        title: { display: true, text: 'Valor de la funcion  f(x)',
+        title: { display: true, text: 'Valor de la función  f(x)',
                  color: TEXT, font: { size: 18, weight: 'bold', family: 'Inter, sans-serif' },
                  padding: { bottom: 15 } } },
       scales: { x: _mkXAxis(), y: _mkYAxis(false) },

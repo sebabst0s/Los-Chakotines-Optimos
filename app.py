@@ -224,9 +224,9 @@ def newton(f, x0, max_iter, tol, c1, c2, alpha_init):
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 METHOD_NAMES = {
-    'gradient':  'Gradiente descendente (Steepest Descent)',
-    'conjugate': 'Gradiente conjugado (Fletcher-Reeves)',
-    'newton':    'Método de Newton (Hessiano numérico)',
+    'gradient':  'Gradiente Descendente',
+    'conjugate': 'Gradiente Conjugado',
+    'newton':    'Método de Newton',
 }
 
 METHOD_FNS = {
