@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, jsonify
 import numpy as np
 import math
 import os
+import re
 import time
 import sys
 
@@ -236,9 +237,140 @@ METHOD_FNS = {
 }
 
 
+def latex_to_numpy(expr: str) -> str:
+    """
+    Convert a LaTeX or natural-math expression (from MathLive) to a
+    NumPy-compatible Python string.  If the expression already uses
+    x[i] array notation it is returned unchanged.
+
+    Supported conversions:
+      x, y, z, w          → x[0], x[1], x[2], x[3]
+      x^{2}  /  x^2       → x**(2) / x**2
+      \\frac{a}{b}        → ((a)/(b))
+      \\sqrt{a}           → np.sqrt(a)
+      \\sqrt[n]{a}        → (a)**(1/(n))
+      \\sin, \\cos, ...   → np.sin, np.cos, ...
+      \\ln, \\log         → np.log, np.log10
+      \\pi, \\infty       → np.pi, np.inf
+      \\left(, \\right)   → (, )
+      2x, xy (implicit)   → 2*x[0], x[0]*x[1]
+    """
+    s = expr.strip()
+
+    # ── Fast path: already NumPy array notation (no LaTeX backslashes) ────────
+    if re.search(r'x\s*\[', s) and '\\' not in s:
+        return s
+
+    # ── 1. Strip display-math delimiters ─────────────────────────────────────
+    s = re.sub(r'^\s*\$+\s*|\s*\$+\s*$', '', s)
+
+    # ── 2. \left / \right grouping → plain parentheses ───────────────────────
+    for lat, rep in (
+        (r'\left(',  '('), (r'\right)', ')'),
+        (r'\left[',  '('), (r'\right]', ')'),
+        (r'\left\{', '('), (r'\right\}', ')'),
+        (r'\left|',  'abs('), (r'\right|', ')'),
+        (r'\left.',  ''), (r'\right.',  ''),
+    ):
+        s = s.replace(lat, rep)
+
+    # ── 3. Superscripts FIRST so nested {…} inside sqrt/frac are gone ──────────
+    #  a^{exp} → a**(exp) ; a^n → a**n  — repeated to handle nesting
+    for _ in range(8):
+        old = s
+        s = re.sub(r'\^\{([^{}]+)\}', r'**(\1)', s)
+        if s == old:
+            break
+    s = re.sub(r'\^(-?[0-9A-Za-z]+)', r'**\1', s)
+
+    # ── 4. \frac{num}{den} → ((num)/(den))  — up to 8 nesting levels ─────────
+    for _ in range(8):
+        old = s
+        s = re.sub(r'\\frac\{([^{}]*)\}\{([^{}]*)\}', r'((\1)/(\2))', s)
+        if s == old:
+            break
+
+    # ── 5. Square / n-th roots (no nested {} remain after step 3) ────────────
+    s = re.sub(r'\\sqrt\s*\[([^\]]+)\]\s*\{([^{}]+)\}', r'((\2)**(1/(\1)))', s)
+    s = re.sub(r'\\sqrt\s*\{([^{}]+)\}', r'np.sqrt(\1)', s)
+    s = re.sub(r'\\sqrt\s+([A-Za-z0-9_.]+)', r'np.sqrt(\1)', s)
+
+    # ── 6. Math functions (longest / most-specific first) ────────────────────
+    _FN = [
+        (r'\\operatorname\{arcsin\}', 'np.arcsin'),
+        (r'\\operatorname\{arccos\}', 'np.arccos'),
+        (r'\\operatorname\{arctan\}', 'np.arctan'),
+        (r'\\operatorname\{sinh\}',   'np.sinh'),
+        (r'\\operatorname\{cosh\}',   'np.cosh'),
+        (r'\\operatorname\{tanh\}',   'np.tanh'),
+        (r'\\operatorname\{sin\}',    'np.sin'),
+        (r'\\operatorname\{cos\}',    'np.cos'),
+        (r'\\operatorname\{tan\}',    'np.tan'),
+        (r'\\operatorname\{exp\}',    'np.exp'),
+        (r'\\operatorname\{ln\}',     'np.log'),
+        (r'\\operatorname\{log\}',    'np.log10'),
+        (r'\\arcsin\b', 'np.arcsin'),
+        (r'\\arccos\b', 'np.arccos'),
+        (r'\\arctan\b', 'np.arctan'),
+        (r'\\sinh\b',   'np.sinh'),
+        (r'\\cosh\b',   'np.cosh'),
+        (r'\\tanh\b',   'np.tanh'),
+        (r'\\sin\b',    'np.sin'),
+        (r'\\cos\b',    'np.cos'),
+        (r'\\tan\b',    'np.tan'),
+        (r'\\exp\b',    'np.exp'),
+        (r'\\ln\b',     'np.log'),
+        (r'\\log\b',    'np.log10'),
+        (r'\\abs\b',    'abs'),
+    ]
+    for pat, repl in _FN:
+        s = re.sub(pat, repl, s)
+
+    # ── 7. Constants ──────────────────────────────────────────────────────────
+    s = re.sub(r'\\pi\b',    'np.pi',  s)
+    s = re.sub(r'\\infty\b', 'np.inf', s)
+    s = re.sub(r'\\e\b',     'np.e',   s)
+
+    # ── 8. Operators ──────────────────────────────────────────────────────────
+    s = (s.replace(r'\cdot', '*').replace(r'\times', '*')
+          .replace(r'\div', '/').replace(r'\,', '')
+          .replace(r'\;', '').replace(r'\ ', ''))
+
+    # ── 9. Clean up remaining LaTeX artefacts ─────────────────────────────────
+    s = re.sub(r'_\{[^{}]*\}', '', s)          # subscripts like _{1}
+    s = re.sub(r'_[0-9A-Za-z]', '', s)         # subscripts like _1
+    s = re.sub(r'\\[A-Za-z]+', '', s)          # leftover \commands
+    s = s.replace('{', '(').replace('}', ')')  # stray braces → parens
+
+    # ── 10a. Implicit variable multiplication: xy → x*y, xyz → x*y*z ─────────
+    #  Must come BEFORE single-variable mapping so 'y' in 'xy' isn't skipped
+    def _split_vars(m):
+        return '*'.join(list(m.group(0)))
+    s = re.sub(r'(?<![A-Za-z_\[])([xyzw]{2,})(?![A-Za-z_\[0-9])', _split_vars, s)
+
+    # ── 10b. Variable mapping: x→x[0], y→x[1], z→x[2], w→x[3] ──────────────
+    #  Negative lookbehind: skip letter inside identifiers (np.exp, arcsin, …)
+    for var, idx in [('w', 3), ('z', 2), ('y', 1), ('x', 0)]:
+        s = re.sub(
+            r'(?<![A-Za-z_.\[])' + var + r'(?![A-Za-z_\[0-9])',
+            f'x[{idx}]', s,
+        )
+
+    # ── 11. Implicit multiplication (numeric prefix / bracket adjacency) ──────
+    s = re.sub(r'(\d)\s*\(',   r'\1*(', s)   # 2( → 2*(
+    s = re.sub(r'(\d)(x\[)',   r'\1*\2', s)  # 2x[ → 2*x[
+    s = re.sub(r'(\d)(np\.)',  r'\1*\2', s)  # 2np. → 2*np.
+    s = re.sub(r'\)\s*\(',     r')*(', s)    # )( → )*(
+    s = re.sub(r'(\])(x\[)',   r'\1*\2', s)  # ]x[ → ]*x[
+    s = re.sub(r'(\])(np\.)',  r'\1*\2', s)  # ]np. → ]*np.
+    s = re.sub(r'\)(x\[)',     r')*\1', s)   # )(x[ → )*(x[
+
+    return s.strip()
+
+
 def _parse_common(data):
     """Parse and validate shared params. Returns (func_str, n, x0, max_iter, tol, c1, c2, alpha) or raises."""
-    func_str = (data.get('function') or '').strip()
+    func_str = latex_to_numpy((data.get('function') or '').strip())
     if not func_str:
         raise ValueError('Ingresa una función objetivo.')
 
