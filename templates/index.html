@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&display=swap" rel="stylesheet">
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
-  <script defer src="https://unpkg.com/mathlive/dist/mathlive.min.js"></script>
+  <script defer src="https://unpkg.com/mathlive"></script>
 
   <style>
   /* ════════════════════════════════════════════════════════════════════
@@ -945,7 +945,7 @@
                 — usa <code>x</code>, <code>y</code>, <code>z</code> o <code>x[0]</code>, <code>x[1]</code>…
               </span>
             </label>
-            <math-field id="function" virtual-keyboard-mode="onfocus">x^{2}+y^{2}</math-field>
+            <math-field id="funcion-input" style="width:100%; padding:10px; font-size:1.2em;"></math-field>
           </div>
 
           <div class="fgroup">
@@ -1369,7 +1369,7 @@ const fmtVec = arr => arr.map((v,i) => `x[${i}] = ${fmt(v,9)}`).join('\n');
 function getParams() {
   return {
     n:          parseInt(val('n')),
-    fn:         val('function'),
+    fn:         (document.getElementById('funcion-input').value || '').trim(),
     x0:         val('x0'),
     method:     val('method'),
     max_iter:   parseInt(val('max_iter')),
@@ -1425,9 +1425,9 @@ function updateMethodDesc() {
 function loadEx(k) {
   const e = EX[k]; if (!e) return;
   $('n').value = e.n; $('x0').value = e.x0;
-  // Set math-field with LaTeX (falls back to NumPy string if no latex field)
-  const mf = $('function');
-  mf.value = e.latex || e.fn;
+  // Only update math-field on example button clicks, never while user types
+  const mf = document.getElementById('funcion-input');
+  if (mf) mf.value = e.latex || e.fn;
   $('method').value = e.method; $('max_iter').value = e.max_iter;
   $('tol').value = e.tol; $('c1').value = e.c1; $('c2').value = e.c2;
   $('alpha_init').value = e.alpha;
@@ -2151,6 +2151,12 @@ document.addEventListener('keydown', e => {
 
 /* ── Init ────────────────────────────────────────────────────────── */
 updateMethodDesc();
+
+// Set default expression once MathLive registers the custom element
+customElements.whenDefined('math-field').then(() => {
+  const mf = document.getElementById('funcion-input');
+  if (mf && !mf.value) mf.value = 'x^{2}+y^{2}';
+});
 </script>
 </body>
 </html>
