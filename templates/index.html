@@ -768,9 +768,9 @@
   .winner-card .w-detail { font-size: .9rem; color: var(--muted); line-height: 1.7;
                            font-family: var(--mono); }
 
-  /* ── Comparison charts: stacked, 400 px each ─────────────────── */
+  /* ── Comparison charts: stacked, 350 px each ─────────────────── */
   #cmp-charts { grid-template-columns: 1fr; }
-  #cmp-charts canvas { min-height: 400px; }
+  #cmp-charts canvas { height: 350px; max-height: 350px; }
   </style>
 </head>
 <body>
@@ -1522,25 +1522,27 @@ function renderComparison(data, p) {
   const maxIter   = Math.max(...entries.map(([,v])=>v.iterations||1));
   const maxTime   = Math.max(...entries.map(([,v])=>v.time_ms||1));
 
-  // ── Winner card ───────────────────────────────────────────────────
-  const bestKey = winFopt || entries.reduce((b,[k,v])=>(!b||v.f_opt<results[b].f_opt)?k:b, null);
-  const winEl   = $('cmp-winner');
-  if (bestKey && winEl) {
-    const r    = results[bestKey];
-    const name = MSHORT[bestKey];
-    const xstr = (r.x_opt||[]).map(v=>fmt(v,4)).join(', ');
-    winEl.innerHTML = `
-      <div class="winner-card">
-        <span class="w-trophy">🏆</span>
-        <div class="w-body">
-          <div class="w-method">${name} encontró el mínimo</div>
-          <div class="w-detail">
-            x* = [${xstr}] &nbsp;·&nbsp; f(x*) = ${fmt(r.f_opt)}
-            &nbsp;·&nbsp; ${r.iterations} iteraciones
+  // ── Winner card (isolated try-catch — must not block table render) ──
+  try {
+    const bestKey = winFopt || entries.reduce((b,[k,v])=>(!b||v.f_opt<results[b].f_opt)?k:b, null);
+    const winEl   = $('cmp-winner');
+    if (bestKey && winEl) {
+      const r    = results[bestKey];
+      const name = MSHORT[bestKey] || bestKey;
+      const xstr = (r.x_opt||[]).map(v=>fmt(v,4)).join(', ');
+      winEl.innerHTML = `
+        <div class="winner-card">
+          <span class="w-trophy">🏆</span>
+          <div class="w-body">
+            <div class="w-method">${name} encontró el mínimo</div>
+            <div class="w-detail">
+              x* = [${xstr}] &nbsp;·&nbsp; f(x*) = ${fmt(r.f_opt)}
+              &nbsp;·&nbsp; ${r.iterations} iteraciones
+            </div>
           </div>
-        </div>
-      </div>`;
-  } else if (winEl) { winEl.innerHTML = ''; }
+        </div>`;
+    } else if (winEl) { winEl.innerHTML = ''; }
+  } catch(e) { console.warn('Winner card error:', e); }
 
   const tbody = $('cmp-tbody'); tbody.innerHTML = '';
   ['gradient','conjugate','newton'].forEach(key => {
@@ -2325,35 +2327,70 @@ function renderComparisonChart(results) {
   const cv3 = _prepCanvas('cmp-chart-1');
   const cv4 = _prepCanvas('cmp-chart-2');
 
-  _cmpC1 = new Chart(cv3, {
-    type: 'line',
-    data: { labels, datasets: ds1 },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      animation: false,
-      layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
-      plugins: { legend: leg,
-        title: { display: true, text: 'Norma del gradiente  ||∇f||',
-                 color: TEXT, font: { size: 18, weight: 'bold', family: 'Inter, sans-serif' },
-                 padding: { bottom: 15 } } },
-      scales: { x: _mkXAxis(), y: _mkYAxis(true) },
-    },
+  // Set explicit canvas dimensions before Chart.js reads them.
+  // maintainAspectRatio:false requires the canvas to already have a valid height;
+  // CSS alone may not be applied yet right after classList.add('show').
+  [cv3, cv4].forEach(cv => {
+    if (!cv) return;
+    cv.style.height = '350px';
+    cv.height = 350;
+    cv.width  = cv.parentElement ? (cv.parentElement.clientWidth || 600) : 600;
+    // Clear any leftover error messages from a previous failed render
+    const next = cv.nextElementSibling;
+    if (next && next.classList && next.classList.contains('chart-err')) next.remove();
+    cv.style.display = '';
   });
 
-  _cmpC2 = new Chart(cv4, {
-    type: 'line',
-    data: { labels, datasets: ds2 },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      animation: false,
-      layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
-      plugins: { legend: leg,
-        title: { display: true, text: 'Valor de la función  f(x)',
-                 color: TEXT, font: { size: 18, weight: 'bold', family: 'Inter, sans-serif' },
-                 padding: { bottom: 15 } } },
-      scales: { x: _mkXAxis(), y: _mkYAxis(false) },
-    },
-  });
+  // Helper: hide canvas and show an inline error message
+  function _chartErr(cv, msg) {
+    cv.style.display = 'none';
+    const d = document.createElement('div');
+    d.className = 'chart-err';
+    d.style.cssText = 'color:#b91c1c;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;' +
+                      'padding:1rem;text-align:center;font-size:.88rem;margin:.5rem 0;';
+    d.textContent = msg || 'No se pudo renderizar el gráfico.';
+    cv.parentNode.insertBefore(d, cv.nextSibling);
+  }
+
+  try {
+    _cmpC1 = new Chart(cv3, {
+      type: 'line',
+      data: { labels, datasets: ds1 },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: false,
+        layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
+        plugins: { legend: leg,
+          title: { display: true, text: 'Norma del gradiente  ||∇f||',
+                   color: TEXT, font: { size: 18, weight: 'bold', family: 'Inter, sans-serif' },
+                   padding: { bottom: 15 } } },
+        scales: { x: _mkXAxis(), y: _mkYAxis(true) },
+      },
+    });
+  } catch(e) {
+    console.error('cmp-chart-1 error:', e);
+    _chartErr(cv3, 'Error al renderizar gráfico de gradiente: ' + e.message);
+  }
+
+  try {
+    _cmpC2 = new Chart(cv4, {
+      type: 'line',
+      data: { labels, datasets: ds2 },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: false,
+        layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
+        plugins: { legend: leg,
+          title: { display: true, text: 'Valor de la función  f(x)',
+                   color: TEXT, font: { size: 18, weight: 'bold', family: 'Inter, sans-serif' },
+                   padding: { bottom: 15 } } },
+        scales: { x: _mkXAxis(), y: _mkYAxis(false) },
+      },
+    });
+  } catch(e) {
+    console.error('cmp-chart-2 error:', e);
+    _chartErr(cv4, 'Error al renderizar gráfico de f(x): ' + e.message);
+  }
 }
 
 
