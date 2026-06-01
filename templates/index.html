@@ -1570,59 +1570,251 @@ class ContourAnimator {
     this.playing   = false;
     this._speed    = 1;
     this._animId   = null;
-    this._bg       = null;   // cached background ImageData
+    this._bg       = null;
     this._xmin = 0; this._xmax = 1;
     this._ymin = 0; this._ymax = 1;
+    // Margins for axes + color bar
+    this.M  = { top: 18, right: 96, bottom: 52, left: 58 };
+    this._pw = 0; this._ph = 0;
+    this._Z = null; this._rows = 0; this._cols = 0;
   }
 
   loadGrid(data) {
     this._xmin = data.x_min; this._xmax = data.x_max;
     this._ymin = data.y_min; this._ymax = data.y_max;
-    const Z = data.Z, rows = Z.length, cols = Z[0].length;
-    const W = this.W, H = this.H;
+    const Z = data.Z;
+    this._Z = Z; this._rows = Z.length; this._cols = Z[0].length;
+    const rows = this._rows, cols = this._cols;
+    const { W, H, M } = this;
+    this._pw = W - M.left - M.right;
+    this._ph = H - M.top  - M.bottom;
 
-    let zmin=Infinity, zmax=-Infinity;
-    for(let i=0;i<rows;i++) for(let j=0;j<cols;j++) {
-      if(isFinite(Z[i][j])) { zmin=Math.min(zmin,Z[i][j]); zmax=Math.max(zmax,Z[i][j]); }
-    }
+    let zmin = Infinity, zmax = -Infinity;
+    for (let i = 0; i < rows; i++)
+      for (let j = 0; j < cols; j++)
+        if (isFinite(Z[i][j])) { zmin = Math.min(zmin, Z[i][j]); zmax = Math.max(zmax, Z[i][j]); }
+    if (zmin === zmax) zmax = zmin + 1;
     this._zmin = zmin; this._zmax = zmax;
 
-    const img = this.ctx.createImageData(W, H);
-    for(let py=0;py<H;py++) for(let px=0;px<W;px++) {
-      const fj = (px/(W-1))*(cols-1), fi = (1-py/(H-1))*(rows-1);
-      const j0 = Math.min(Math.floor(fj),cols-2), i0 = Math.min(Math.floor(fi),rows-2);
-      const tj = fj-j0, ti = fi-i0;
-      const v  = Z[i0][j0]*(1-ti)*(1-tj) + Z[i0][j0+1]*(1-ti)*tj
-               + Z[i0+1][j0]*ti*(1-tj)   + Z[i0+1][j0+1]*ti*tj;
-      const t  = (v-zmin)/(zmax-zmin+1e-300);
-      const [r,g,b] = this._cmap(t);
-      const idx = (py*W+px)*4;
-      img.data[idx]=r; img.data[idx+1]=g; img.data[idx+2]=b; img.data[idx+3]=255;
+    // Fill canvas background
+    const ctx = this.ctx;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#f5f3ff';
+    ctx.fillRect(0, 0, W, H);
+
+    // Color map rendered only in the plot area
+    const pw = this._pw, ph = this._ph;
+    const img = ctx.createImageData(pw, ph);
+    for (let py = 0; py < ph; py++) {
+      for (let px = 0; px < pw; px++) {
+        const fj = (px / (pw - 1)) * (cols - 1);
+        const fi = (1 - py / (ph - 1)) * (rows - 1);
+        const j0 = Math.min(Math.floor(fj), cols - 2);
+        const i0 = Math.min(Math.floor(fi), rows - 2);
+        const tj = fj - j0, ti = fi - i0;
+        const v = Z[i0][j0]*(1-ti)*(1-tj) + Z[i0][j0+1]*(1-ti)*tj
+                + Z[i0+1][j0]*ti*(1-tj)   + Z[i0+1][j0+1]*ti*tj;
+        const t = (v - zmin) / (zmax - zmin);
+        const [r, g, b] = this._cmap(t);
+        const idx = (py * pw + px) * 4;
+        img.data[idx] = r; img.data[idx+1] = g; img.data[idx+2] = b; img.data[idx+3] = 255;
+      }
     }
-    this.ctx.putImageData(img, 0, 0);
-    this._bg = this.ctx.getImageData(0,0,W,H);
+    ctx.putImageData(img, M.left, M.top);
+
+    this._drawIsolines();
+    this._drawAxes();
+    this._drawColorBar();
+
+    this._bg = ctx.getImageData(0, 0, W, H);
     this.draw();
   }
 
   _cmap(t) {
-    t = Math.max(0,Math.min(1,Math.sqrt(t)));  // sqrt for valley contrast
-    const stops = [
-      [167,243,208], // mint  (low)
-      [196,181,253], // lavender
-      [254,215,170], // peach
-      [244,63,94],   // rose  (high)
-    ];
-    const n=stops.length-1, seg=Math.min(Math.floor(t*n),n-1), f=t*n-seg;
-    const a=stops[seg], b=stops[seg+1];
+    t = Math.max(0, Math.min(1, Math.sqrt(t)));
+    const stops = [[167,243,208],[196,181,253],[254,215,170],[244,63,94]];
+    const n = stops.length - 1;
+    const seg = Math.min(Math.floor(t * n), n - 1);
+    const f = t * n - seg;
+    const a = stops[seg], b = stops[seg + 1];
     return [Math.round(a[0]+(b[0]-a[0])*f), Math.round(a[1]+(b[1]-a[1])*f), Math.round(a[2]+(b[2]-a[2])*f)];
   }
 
-  _px(fx) { return ((fx-this._xmin)/(this._xmax-this._xmin))*this.W; }
-  _py(fy) { return (1-(fy-this._ymin)/(this._ymax-this._ymin))*this.H; }
+  /* ── Marching-squares isolines ─────────────────────────────────── */
+  _drawIsolines() {
+    const Z = this._Z, rows = this._rows, cols = this._cols;
+    const ctx = this.ctx;
+    const { M, _pw: pw, _ph: ph, _zmin: zmin, _zmax: zmax } = this;
+    const N = 10;  // number of level curves
+
+    // Grid index → canvas pixel (row 0 = y_min = bottom of plot)
+    const gx = j => M.left + (j / (cols - 1)) * pw;
+    const gy = i => M.top  + (1 - i / (rows - 1)) * ph;
+
+    // Linear interpolation of crossing point on an edge
+    const lerp = (x0, y0, v0, x1, y1, v1, lev) => {
+      const t = (lev - v0) / (v1 - v0 + 1e-300);
+      return [x0 + (x1 - x0) * t, y0 + (y1 - y0) * t];
+    };
+
+    for (let li = 1; li < N; li++) {
+      const level = zmin + (zmax - zmin) * li / N;
+      ctx.save();
+      ctx.beginPath();
+
+      for (let i = 0; i < rows - 1; i++) {
+        for (let j = 0; j < cols - 1; j++) {
+          const c00 = Z[i][j], c01 = Z[i][j+1], c10 = Z[i+1][j], c11 = Z[i+1][j+1];
+          if (!isFinite(c00)||!isFinite(c01)||!isFinite(c10)||!isFinite(c11)) continue;
+          // Canvas coords of the 4 cell corners
+          const x0 = gx(j), y0 = gy(i);    // bottom-left  (c00)
+          const x1 = gx(j+1);               // bottom-right (c01) — same y0
+          const y2 = gy(i+1);               // top row      (c10, c11)
+          const x3 = gx(j+1);               // top-right    (c11) — same x1
+
+          const cr = [];
+          // Bottom edge: c00 → c01
+          if ((c00 >= level) !== (c01 >= level)) cr.push(lerp(x0, y0, c00, x1, y0, c01, level));
+          // Right edge:  c01 → c11
+          if ((c01 >= level) !== (c11 >= level)) cr.push(lerp(x1, y0, c01, x3, y2, c11, level));
+          // Top edge:    c10 → c11
+          if ((c10 >= level) !== (c11 >= level)) cr.push(lerp(x0, y2, c10, x3, y2, c11, level));
+          // Left edge:   c00 → c10
+          if ((c00 >= level) !== (c10 >= level)) cr.push(lerp(x0, y0, c00, x0, y2, c10, level));
+
+          if (cr.length === 2) {
+            ctx.moveTo(cr[0][0], cr[0][1]);
+            ctx.lineTo(cr[1][0], cr[1][1]);
+          } else if (cr.length === 4) {
+            // Saddle point — disambiguate with cell average
+            const avg = (c00 + c01 + c10 + c11) / 4;
+            if (avg >= level) {
+              ctx.moveTo(cr[0][0],cr[0][1]); ctx.lineTo(cr[3][0],cr[3][1]);
+              ctx.moveTo(cr[1][0],cr[1][1]); ctx.lineTo(cr[2][0],cr[2][1]);
+            } else {
+              ctx.moveTo(cr[0][0],cr[0][1]); ctx.lineTo(cr[1][0],cr[1][1]);
+              ctx.moveTo(cr[2][0],cr[2][1]); ctx.lineTo(cr[3][0],cr[3][1]);
+            }
+          }
+        }
+      }
+      ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+      ctx.lineWidth = 0.9;
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  /* ── X / Y axes with tick marks and labels ─────────────────────── */
+  _drawAxes() {
+    const ctx = this.ctx;
+    const { M, W, H, _pw: pw, _ph: ph } = this;
+
+    ctx.save();
+    ctx.strokeStyle = '#4b4b7a';
+    ctx.lineWidth   = 1;
+
+    // Plot border
+    ctx.strokeRect(M.left, M.top, pw, ph);
+
+    // X ticks
+    const Nx = 5;
+    ctx.fillStyle    = '#4b4b7a';
+    ctx.font         = '11px Inter, sans-serif';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'top';
+    for (let i = 0; i <= Nx; i++) {
+      const t   = i / Nx;
+      const val = this._xmin + (this._xmax - this._xmin) * t;
+      const px  = M.left + t * pw;
+      ctx.beginPath(); ctx.moveTo(px, M.top + ph); ctx.lineTo(px, M.top + ph + 5); ctx.stroke();
+      ctx.fillText(val.toFixed(1), px, M.top + ph + 7);
+    }
+    // X axis label
+    ctx.font = 'bold 12px Inter, sans-serif';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('x₁', M.left + pw / 2, H - 4);
+
+    // Y ticks
+    const Ny = 5;
+    ctx.font         = '11px Inter, sans-serif';
+    ctx.textAlign    = 'right';
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i <= Ny; i++) {
+      const t   = i / Ny;
+      const val = this._ymin + (this._ymax - this._ymin) * t;
+      const py  = M.top + (1 - t) * ph;
+      ctx.beginPath(); ctx.moveTo(M.left, py); ctx.lineTo(M.left - 5, py); ctx.stroke();
+      ctx.fillText(val.toFixed(1), M.left - 7, py);
+    }
+    // Y axis label (rotated)
+    ctx.save();
+    ctx.font = 'bold 12px Inter, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.translate(13, M.top + ph / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText('x₂', 0, 0);
+    ctx.restore();
+
+    ctx.restore();
+  }
+
+  /* ── Color bar ─────────────────────────────────────────────────── */
+  _drawColorBar() {
+    const ctx = this.ctx;
+    const { M, W, _ph: ph, _zmin: zmin, _zmax: zmax } = this;
+    const bx = W - M.right + 14;
+    const by = M.top;
+    const bw = 16;
+    const bh = ph;
+
+    // Gradient strip
+    for (let py = 0; py < bh; py++) {
+      const t = 1 - py / bh;
+      const [r, g, b] = this._cmap(t);
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(bx, by + py, bw, 1);
+    }
+    ctx.save();
+    ctx.strokeStyle = '#888'; ctx.lineWidth = 0.8;
+    ctx.strokeRect(bx, by, bw, bh);
+    ctx.restore();
+
+    // Tick marks and labels
+    const N = 5;
+    ctx.fillStyle    = '#4b4b7a';
+    ctx.font         = '10px Inter, sans-serif';
+    ctx.textAlign    = 'left';
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i <= N; i++) {
+      const t   = i / N;
+      const val = zmin + (zmax - zmin) * t;
+      const py  = by + bh * (1 - t);
+      ctx.save();
+      ctx.strokeStyle = '#888'; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(bx + bw, py); ctx.lineTo(bx + bw + 4, py); ctx.stroke();
+      ctx.restore();
+      ctx.fillText(val.toExponential(1), bx + bw + 6, py);
+    }
+
+    // Color bar title (rotated)
+    ctx.save();
+    ctx.font = 'bold 11px Inter, sans-serif';
+    ctx.fillStyle = '#4b4b7a';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.translate(W - 7, by + bh / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText('f(x,y)', 0, 0);
+    ctx.restore();
+  }
+
+  // Data → canvas pixel (respects margins)
+  _px(fx) { return this.M.left + ((fx - this._xmin) / (this._xmax - this._xmin)) * this._pw; }
+  _py(fy) { return this.M.top  + (1 - (fy - this._ymin) / (this._ymax - this._ymin)) * this._ph; }
 
   setPaths(pathsData) {
     this.paths = pathsData;
-    this.maxFrames = Math.max(...pathsData.map(p=>p.points.length), 1);
+    this.maxFrames = Math.max(...pathsData.map(p => p.points.length), 1);
     this.frame = 0;
   }
 
@@ -1632,49 +1824,52 @@ class ContourAnimator {
     ctx.putImageData(this._bg, 0, 0);
 
     this.paths.forEach(path => {
-      const end = Math.min(this.frame+1, path.points.length);
+      const end = Math.min(this.frame + 1, path.points.length);
       if (end < 1) return;
       const pts = path.points.slice(0, end);
 
       // Trail line
       ctx.save();
       ctx.beginPath();
-      pts.forEach(([x,y],i) => {
-        const px=this._px(x), py=this._py(y);
-        i ? ctx.lineTo(px,py) : ctx.moveTo(px,py);
+      pts.forEach(([x, y], i) => {
+        const px = this._px(x), py = this._py(y);
+        i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
       });
       ctx.strokeStyle = path.color;
       ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.globalAlpha = 0.85;
       ctx.stroke(); ctx.restore();
 
       // Start marker ○
-      const [sx,sy] = pts[0];
-      ctx.save(); ctx.beginPath(); ctx.arc(this._px(sx),this._py(sy),5,0,Math.PI*2);
-      ctx.fillStyle='#fff'; ctx.strokeStyle=path.color; ctx.lineWidth=2;
+      const [sx, sy] = pts[0];
+      ctx.save(); ctx.beginPath();
+      ctx.arc(this._px(sx), this._py(sy), 5, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff'; ctx.strokeStyle = path.color; ctx.lineWidth = 2;
       ctx.fill(); ctx.stroke(); ctx.restore();
 
       // Current point ●
-      const [cx,cy] = pts[pts.length-1];
-      ctx.save(); ctx.beginPath(); ctx.arc(this._px(cx),this._py(cy),7,0,Math.PI*2);
-      ctx.fillStyle=path.color; ctx.fill();
-      ctx.strokeStyle='#fff'; ctx.lineWidth=2.5; ctx.stroke(); ctx.restore();
+      const [cx, cy] = pts[pts.length - 1];
+      ctx.save(); ctx.beginPath();
+      ctx.arc(this._px(cx), this._py(cy), 7, 0, Math.PI * 2);
+      ctx.fillStyle = path.color; ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.5; ctx.stroke(); ctx.restore();
     });
 
     // Frame counter overlay
     ctx.save();
-    ctx.fillStyle='rgba(45,43,85,.75)'; ctx.font='bold 12px monospace';
-    ctx.fillText(`k = ${this.frame}`, 12, 22); ctx.restore();
+    ctx.fillStyle = 'rgba(45,43,85,.75)'; ctx.font = 'bold 12px monospace';
+    ctx.fillText(`k = ${this.frame}`, this.M.left + 8, this.M.top + 18);
+    ctx.restore();
   }
 
   play() {
-    if (this.frame >= this.maxFrames-1) this.frame = 0;
+    if (this.frame >= this.maxFrames - 1) this.frame = 0;
     this.playing = true;
     const tick = () => {
       if (!this.playing) return;
-      this.frame = Math.min(this.frame + this._speed, this.maxFrames-1);
+      this.frame = Math.min(this.frame + this._speed, this.maxFrames - 1);
       this.draw();
       updateFrameCounter();
-      if (this.frame < this.maxFrames-1) {
+      if (this.frame < this.maxFrames - 1) {
         this._animId = requestAnimationFrame(tick);
       } else {
         this.playing = false;
@@ -1690,9 +1885,13 @@ class ContourAnimator {
     this.playing = false;
     if (this._animId) { cancelAnimationFrame(this._animId); this._animId = null; }
   }
-  reset() { this.pause(); this.frame=0; this.draw(); updateFrameCounter(); }
-  step(delta) { this.pause(); this.frame=Math.max(0,Math.min(this.frame+delta,this.maxFrames-1)); this.draw(); updateFrameCounter(); }
-  setSpeed(s) { this._speed = Math.max(1,Math.floor(s)); }
+  reset() { this.pause(); this.frame = 0; this.draw(); updateFrameCounter(); }
+  step(delta) {
+    this.pause();
+    this.frame = Math.max(0, Math.min(this.frame + delta, this.maxFrames - 1));
+    this.draw(); updateFrameCounter();
+  }
+  setSpeed(s) { this._speed = Math.max(1, Math.floor(s)); }
 }
 
 
@@ -1737,7 +1936,7 @@ async function triggerContour(fn, historiesMap) {
     const cv = $('contour-canvas');
     const containerW = cv.parentElement.clientWidth || 600;
     cv.width  = containerW;
-    cv.height = Math.round(containerW * 0.62);
+    cv.height = Math.round(containerW * 0.70);
 
     // (Re)create animator
     _animator = new ContourAnimator(cv);
