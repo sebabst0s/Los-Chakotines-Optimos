@@ -1248,15 +1248,26 @@ const AUDIO = (() => {
     return _ctx;
   }
 
+  // 8-bit retro note: square wave body + sawtooth sparkle layer
   function note(ac, freq, t0, dur, vol=0.14) {
+    // Main square-wave oscillator (classic chiptune body)
     const osc  = ac.createOscillator();
     const gain = ac.createGain();
     osc.connect(gain); gain.connect(ac.destination);
-    osc.type = 'sine'; osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0, t0);
-    gain.gain.linearRampToValueAtTime(vol, t0+0.018);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t0+dur);
-    osc.start(t0); osc.stop(t0+dur+0.03);
+    osc.type = 'square'; osc.frequency.value = freq;
+    gain.gain.setValueAtTime(vol, t0);
+    gain.gain.setValueAtTime(vol, t0 + dur * 0.75);
+    gain.gain.linearRampToValueAtTime(0.0001, t0 + dur);
+    osc.start(t0); osc.stop(t0 + dur + 0.01);
+
+    // Thin sawtooth layer one octave up for that Sega brightness
+    const osc2  = ac.createOscillator();
+    const gain2 = ac.createGain();
+    osc2.connect(gain2); gain2.connect(ac.destination);
+    osc2.type = 'sawtooth'; osc2.frequency.value = freq * 2;
+    gain2.gain.setValueAtTime(vol * 0.18, t0);
+    gain2.gain.linearRampToValueAtTime(0.0001, t0 + dur * 0.6);
+    osc2.start(t0); osc2.stop(t0 + dur + 0.01);
   }
 
   return {
@@ -1266,18 +1277,22 @@ const AUDIO = (() => {
         const ac = getCtx();
         if (ac.state === 'suspended') ac.resume();
         const t = ac.currentTime + 0.04;
-        // "Pa-ra-pa-pá-paa" — McDonald's 5-note jingle (sine, soft flute timbre)
+        // Retro Sega-style intro: fast ascending run → triumphant held note
+        // Total duration ≈ 1.9 s
         const melody = [
-          { f: 392.00, dur: 0.15 },  // G4
-          { f: 523.25, dur: 0.15 },  // C5
-          { f: 329.63, dur: 0.15 },  // E4
-          { f: 392.00, dur: 0.15 },  // G4
-          { f: 523.25, dur: 0.40 },  // C5 (held)
+          { f: 220.00, dur: 0.08 },  // A3  — quick pick-up
+          { f: 277.18, dur: 0.08 },  // C#4
+          { f: 329.63, dur: 0.08 },  // E4
+          { f: 369.99, dur: 0.08 },  // F#4
+          { f: 440.00, dur: 0.08 },  // A4
+          { f: 523.25, dur: 0.08 },  // C5
+          { f: 659.25, dur: 0.08 },  // E5
+          { f: 880.00, dur: 0.55 },  // A5  — long triumphant hold
         ];
         let offset = 0;
         melody.forEach(({ f, dur }) => {
-          note(ac, f, t + offset, dur, 0.13);
-          offset += dur + 0.02;  // tiny gap between notes
+          note(ac, f, t + offset, dur, 0.11);
+          offset += dur + 0.01;
         });
       } catch(e) {}
     },

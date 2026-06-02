@@ -521,13 +521,20 @@ def compare():
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '')
 
 GROQ_SYSTEM_PROMPT = (
-    'Eres un profesor experto en métodos de optimización numérica. '
-    'Analiza los resultados de tres algoritmos (Gradiente Descendente, '
-    'Gradiente Conjugado y Método de Newton) evaluados con las condiciones de Wolfe. '
-    'Basado en los datos provistos, redacta un solo párrafo corto (máximo 4 líneas) '
-    'concluyendo qué método fue el más eficiente, justificando matemáticamente por qué '
-    '(ej. uso de la curvatura en Newton), e indicando si algún método sufrió de '
-    'oscilaciones o estancamiento.'
+    'Eres un analista experto en optimización numérica. Tu tarea es analizar los resultados '
+    'de tres algoritmos (Gradiente Descendente, Gradiente Conjugado y Método de Newton) '
+    'basados ESTRICTAMENTE en los datos reales proporcionados en el JSON.\n'
+    'Sigue estas reglas al pie de la letra:\n'
+    'Verifica los empates por límite: Si los tres algoritmos alcanzan exactamente el mismo '
+    'número alto de iteraciones (por ejemplo, los tres marcan 10000), DEBES concluir que '
+    'ninguno logró converger. Explica que esto suele deberse a que el punto inicial es un '
+    'máximo local/punto de silla, a un estancamiento severo, o a una tolerancia demasiado '
+    'estricta. ¡NO inventes un ganador si todos llegaron al límite!\n'
+    'Si hay convergencia normal: Identifica al método que requirió la menor cantidad de '
+    'iteraciones para alcanzar un error bajo. Justifica matemáticamente por qué ganó '
+    '(ej. Newton es más rápido porque utiliza la matriz Hessiana para leer la curvatura, '
+    'mientras que los de gradiente sufren de zig-zag).\n'
+    'Formato: Redacta tu conclusión en un solo párrafo directo, profesional y de máximo 5 líneas.'
 )
 
 
