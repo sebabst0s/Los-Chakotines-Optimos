@@ -811,6 +811,43 @@
     text-transform: uppercase; letter-spacing: .08em; margin-bottom: .6rem;
   }
   .ai-loading { color: #9ca3af; font-style: italic; }
+
+  /* ── CSV download button ─────────────────────────────────────── */
+  .btn-csv-wrap { margin-top: .75rem; display: none; }
+  .btn-csv-wrap.show { display: block; }
+  .btn-csv {
+    width: 100%; padding: .65rem 1.2rem;
+    background: linear-gradient(135deg, #059669, #0ea5e9);
+    color: #fff; border: none; border-radius: 10px;
+    font-size: .9rem; font-weight: 700; font-family: var(--sans);
+    cursor: pointer; transition: opacity .2s;
+    display: flex; align-items: center; justify-content: center; gap: .45rem;
+  }
+  .btn-csv:hover  { opacity: .85; }
+  .btn-csv:disabled { opacity: .45; cursor: default; }
+
+  /* ── 2D / 3D view tabs ───────────────────────────────────────── */
+  .view-tabs {
+    display: none; gap: .4rem; padding: .7rem 1rem .35rem;
+    border-bottom: 1px solid rgba(139,92,246,.1);
+    background: rgba(248,247,255,.6);
+  }
+  .view-tabs.show { display: flex; }
+  .view-tab {
+    padding: .38rem .95rem; border-radius: 7px;
+    border: 1.5px solid var(--lav-m); background: transparent;
+    color: #5b21b6; font-size: .78rem; font-weight: 700;
+    font-family: var(--sans); cursor: pointer; transition: all .15s;
+  }
+  .view-tab:hover   { background: var(--lav-l); }
+  .view-tab.active  { background: var(--lav); color: #fff; border-color: var(--lav); }
+
+  /* ── 3-D surface plot ────────────────────────────────────────── */
+  #surface-3d {
+    display: none; width: 100%; min-height: 460px;
+    background: #f5f3ff;
+  }
+  #surface-3d.show { display: block; }
   </style>
 </head>
 <body>
@@ -1110,6 +1147,13 @@
             </table>
           </div>
 
+          <!-- CSV download -->
+          <div class="btn-csv-wrap" id="btn-csv-wrap">
+            <button class="btn-csv" id="btn-csv" onclick="downloadCSV()">
+              📥 Descargar Historial (CSV)
+            </button>
+          </div>
+
           <div class="chart-wrap">
             <div class="slbl"><span class="dot dot-lav"></span> Convergencia comparada</div>
             <div class="dual-chart-wrap" id="cmp-charts">
@@ -1140,6 +1184,13 @@
         <div class="phd-icon">🗺</div>
         <h2>Camino de Convergencia (Contorno 2D)</h2>
       </div>
+
+      <!-- 2D / 3D toggle tabs -->
+      <div class="view-tabs" id="view-tabs">
+        <button class="view-tab active" id="tab-2d" onclick="switchView('2d')">📊 Vista 2D</button>
+        <button class="view-tab"        id="tab-3d" onclick="switchView('3d')">🏔️ Vista 3D</button>
+      </div>
+
       <div class="contour-inner">
 
         <!-- Canvas side -->
@@ -1149,6 +1200,7 @@
             Calculando contorno…
           </div>
           <div id="contour-plot"></div>
+          <div id="surface-3d"></div>
         </div>
 
         <!-- Sidebar -->
@@ -1599,13 +1651,36 @@ function renderComparison(data, p) {
 
   const results = data.results;
 
-  // Store for AI analyst
+  // Store for AI analyst + CSV + 3D
   _lastCompareResults = results;
+  _lastSurfaceData    = data.surface || null;
+
+  // Build histories map keyed by method
+  _lastHistoriesMap = {};
+  ['gradient','conjugate','newton'].forEach(k => {
+    if (results[k] && results[k].history) _lastHistoriesMap[k] = results[k].history;
+  });
+
+  // Enable AI analyst button
   const btnAnalizar = $('btn-analizar');
   if (btnAnalizar) { btnAnalizar.disabled = false; }
   // Reset analyst card
   const aiCard = $('ai-result');
   if (aiCard) { aiCard.style.display = 'none'; aiCard.innerHTML = ''; }
+
+  // Enable CSV button
+  const csvWrap = $('btn-csv-wrap');
+  if (csvWrap) csvWrap.classList.add('show');
+
+  // Show / hide 3D tab depending on whether surface was returned
+  const viewTabs = $('view-tabs');
+  if (viewTabs) {
+    if (p.n === 2 && _lastSurfaceData) {
+      viewTabs.classList.add('show');
+    } else {
+      viewTabs.classList.remove('show');
+    }
+  }
   const MINFO = {
     gradient:  { name:'⛰️ Gradiente Descendente', cls:'cmp-grad' },
     conjugate: { name:'🔀 Gradiente Conjugado',   cls:'cmp-conj' },
@@ -1689,11 +1764,8 @@ function renderComparison(data, p) {
 
   // Contour animation (n=2)
   if (p.n === 2) {
-    const histories = {};
-    ['gradient','conjugate','newton'].forEach(k=>{
-      if (results[k]&&results[k].history) histories[k]=results[k].history;
-    });
-    triggerContour(p.fn, histories);
+    switchView('2d');   // reset to 2D tab before loading
+    triggerContour(p.fn, _lastHistoriesMap);
   } else {
     hideContour();
   }
@@ -2114,6 +2186,165 @@ function renderComparisonChart(results) {
 
 /* ── AI Analyst ──────────────────────────────────────────────────── */
 let _lastCompareResults = null;
+let _lastSurfaceData    = null;
+let _lastHistoriesMap   = {};
+
+/* ── CSV Export ──────────────────────────────────────────────────── */
+function downloadCSV() {
+  if (!_lastCompareResults) return;
+
+  const MNAMES = {
+    gradient:  'Gradiente Descendente',
+    conjugate: 'Gradiente Conjugado',
+    newton:    'Método de Newton',
+  };
+
+  const rows = [['Método','Iteración','Coordenadas x (;)','f(x)','‖∇f‖']];
+
+  ['gradient','conjugate','newton'].forEach(key => {
+    const r = _lastCompareResults[key];
+    if (!r || r.error || !r.history) return;
+    const name = MNAMES[key];
+    r.history.forEach(h => {
+      const coords = (h.x || []).join(';');
+      const fval   = h.f   != null ? h.f   : '';
+      const gnorm  = h.grad_norm != null ? h.grad_norm : '';
+      rows.push([name, h.k, coords, fval, gnorm]);
+    });
+  });
+
+  const csv = rows.map(row =>
+    row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')
+  ).join('\r\n');
+
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'historico_optimizacion.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+
+/* ── 2D / 3D view switcher ───────────────────────────────────────── */
+function switchView(mode) {
+  const tab2d    = $('tab-2d');
+  const tab3d    = $('tab-3d');
+  const plot2d   = $('contour-plot');
+  const plot3d   = $('surface-3d');
+  const sidebar  = document.querySelector('.anim-sidebar');
+
+  if (!plot2d || !plot3d) return;
+
+  if (mode === '3d') {
+    if (tab2d) tab2d.classList.remove('active');
+    if (tab3d) tab3d.classList.add('active');
+    plot2d.style.display  = 'none';
+    plot3d.classList.add('show');
+    if (sidebar) sidebar.style.display = 'none';
+    render3D();
+  } else {
+    if (tab3d) tab3d.classList.remove('active');
+    if (tab2d) tab2d.classList.add('active');
+    plot2d.style.display  = '';
+    plot3d.classList.remove('show');
+    if (sidebar) sidebar.style.display = '';
+  }
+}
+
+/* ── 3D surface + scatter3d paths ───────────────────────────────── */
+function render3D() {
+  if (!_lastSurfaceData) return;
+  const sd = _lastSurfaceData;
+
+  const surfTrace = {
+    type:       'surface',
+    x:           sd.xs,
+    y:           sd.ys,
+    z:           sd.Z,
+    colorscale: [
+      [0.0,  '#a7f3d0'],
+      [0.35, '#c4b5fd'],
+      [0.7,  '#fed7aa'],
+      [1.0,  '#f43f5e'],
+    ],
+    showscale:   false,
+    opacity:     0.88,
+    name:        'f(x,y)',
+    hovertemplate: 'x₁=%{x:.3f}<br>x₂=%{y:.3f}<br>f=%{z:.4g}<extra></extra>',
+    contours: {
+      z: { show: true, usecolormap: true, highlightcolor: '#fff', project: { z: false } },
+    },
+  };
+
+  const COLORS = { gradient:'#7c3aed', conjugate:'#0ea5e9', newton:'#f43f5e' };
+  const LABELS = {
+    gradient:  'Gradiente Descendente',
+    conjugate: 'Gradiente Conjugado',
+    newton:    'Método de Newton',
+  };
+
+  const pathTraces = [];
+  ['gradient','conjugate','newton'].forEach(key => {
+    const hist = _lastHistoriesMap[key];
+    if (!hist || !hist.length) return;
+    const pts = hist.filter(h => h.x && h.x.length >= 2);
+    pathTraces.push({
+      type: 'scatter3d', mode: 'lines+markers',
+      x: pts.map(h => h.x[0]),
+      y: pts.map(h => h.x[1]),
+      z: pts.map(h => (Number.isFinite(h.f) ? h.f : 0)),
+      line:   { color: COLORS[key], width: 5 },
+      marker: { color: COLORS[key], size: 3, symbol: 'circle' },
+      name:   LABELS[key],
+      hovertemplate: LABELS[key] + '<br>x₁=%{x:.4f}<br>x₂=%{y:.4f}<br>f=%{z:.5g}<extra></extra>',
+    });
+
+    // Star at final minimum
+    const last = pts[pts.length - 1];
+    if (last) {
+      pathTraces.push({
+        type: 'scatter3d', mode: 'markers',
+        x: [last.x[0]], y: [last.x[1]], z: [Number.isFinite(last.f) ? last.f : 0],
+        marker: { color: COLORS[key], size: 9, symbol: 'diamond', line: { color:'#fff', width:1 } },
+        name: LABELS[key] + ' ★', showlegend: false,
+        hovertemplate: LABELS[key] + ' mínimo<br>(%{x:.3f}, %{y:.3f})<extra></extra>',
+      });
+    }
+  });
+
+  const layout = {
+    margin: { t: 20, r: 10, b: 10, l: 10 },
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    scene: {
+      bgcolor: '#f5f3ff',
+      xaxis: { title: 'x₁', gridcolor: '#d8d4f0', backgroundcolor: '#f0eeff' },
+      yaxis: { title: 'x₂', gridcolor: '#d8d4f0', backgroundcolor: '#f0eeff' },
+      zaxis: { title: 'f(x)',gridcolor: '#d8d4f0', backgroundcolor: '#e8f4f8' },
+      camera: { eye: { x: 1.6, y: 1.6, z: 1.2 } },
+    },
+    showlegend: true,
+    legend: {
+      x: 0.01, y: 0.99, xanchor: 'left', yanchor: 'top',
+      bgcolor: 'rgba(255,255,255,0.85)',
+      bordercolor: '#e8e5f5', borderwidth: 1,
+      font: { size: 10 },
+    },
+  };
+
+  try { Plotly.purge('surface-3d'); } catch(e) {}
+  Plotly.newPlot('surface-3d', [surfTrace, ...pathTraces], layout, {
+    responsive:     true,
+    displayModeBar: true,
+    scrollZoom:     false,
+    displaylogo:    false,
+    modeBarButtonsToRemove: ['select2d', 'lasso2d'],
+  });
+}
+
 
 async function generarAnalisis() {
   if (!_lastCompareResults) return;

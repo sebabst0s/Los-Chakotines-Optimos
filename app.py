@@ -508,7 +508,55 @@ def compare():
                 'history':     history[:200],
             }
 
-        return jsonify(success=True, results=results)
+        # ── 3-D surface meshgrid (only for 2-D problems) ──────────────────
+        surface_data = None
+        if n == 2:
+            try:
+                # Collect every evaluated point from all histories
+                all_xs = [x0[0]]
+                all_ys = [x0[1]]
+                for r in results.values():
+                    for h in r.get('history', []):
+                        if h.get('x') and len(h['x']) >= 2:
+                            all_xs.append(h['x'][0])
+                            all_ys.append(h['x'][1])
+
+                xmin, xmax = min(all_xs), max(all_xs)
+                ymin, ymax = min(all_ys), max(all_ys)
+                span  = max(xmax - xmin, ymax - ymin, 0.5)
+                pad   = span * 0.4 + 0.8
+                x1s   = np.linspace(xmin - pad, xmax + pad, 50)
+                y1s   = np.linspace(ymin - pad, ymax + pad, 50)
+                XX, YY = np.meshgrid(x1s, y1s)
+
+                ZZ = np.full_like(XX, np.nan)
+                for i in range(50):
+                    for j in range(50):
+                        try:
+                            v = eval_func(func_str, np.array([XX[i, j], YY[i, j]]))
+                            ZZ[i, j] = v if np.isfinite(v) else np.nan
+                        except Exception:
+                            pass
+
+                # Clip extreme outliers so the colorscale isn't dominated by spikes
+                finite_vals = ZZ[np.isfinite(ZZ)]
+                if finite_vals.size > 0:
+                    lo, hi = np.percentile(finite_vals, 2), np.percentile(finite_vals, 98)
+                    ZZ = np.clip(ZZ, lo, hi)
+
+                surface_data = {
+                    'xs':    x1s.tolist(),
+                    'ys':    y1s.tolist(),
+                    'Z':     ZZ.tolist(),
+                    'x_min': float(xmin - pad),
+                    'x_max': float(xmax + pad),
+                    'y_min': float(ymin - pad),
+                    'y_max': float(ymax + pad),
+                }
+            except Exception as exc:
+                surface_data = None  # non-fatal — just skip 3-D tab
+
+        return jsonify(success=True, results=results, surface=surface_data)
 
     except Exception as exc:
         import traceback
