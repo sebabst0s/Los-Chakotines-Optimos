@@ -1266,11 +1266,19 @@ const AUDIO = (() => {
         const ac = getCtx();
         if (ac.state === 'suspended') ac.resume();
         const t = ac.currentTime + 0.04;
-        // Ascending pentatonic + final chord
-        [523.25, 659.25, 783.99, 987.77, 1046.50].forEach((f,i) => note(ac,f,t+i*.1,.22));
-        // Chord at the end
-        const tc = t + 5*.1;
-        [523.25, 659.25, 783.99].forEach(f => note(ac,f,tc,.55,.09));
+        // "Pa-ra-pa-pá-paa" — McDonald's 5-note jingle (sine, soft flute timbre)
+        const melody = [
+          { f: 392.00, dur: 0.15 },  // G4
+          { f: 523.25, dur: 0.15 },  // C5
+          { f: 329.63, dur: 0.15 },  // E4
+          { f: 392.00, dur: 0.15 },  // G4
+          { f: 523.25, dur: 0.40 },  // C5 (held)
+        ];
+        let offset = 0;
+        melody.forEach(({ f, dur }) => {
+          note(ac, f, t + offset, dur, 0.13);
+          offset += dur + 0.02;  // tiny gap between notes
+        });
       } catch(e) {}
     },
     toggle() {
@@ -1717,12 +1725,7 @@ class PlotlyContour {
         [0.7,  '#fed7aa'],
         [1.0,  '#f43f5e'],
       ],
-      showscale: true,
-      colorbar: {
-        thickness: 14, len: 0.88,
-        title: { text: 'f(x,y)', side: 'right', font: { size: 11 } },
-        tickfont: { size: 10 },
-      },
+      showscale: false,
       contours: { coloring: 'heatmap', showlines: true, ncontours: 14 },
       line:  { smoothing: 0.8, color: 'rgba(255,255,255,0.5)', width: 0.8 },
       name: 'f(x,y)', showlegend: false,
