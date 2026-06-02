@@ -773,6 +773,16 @@
   /* Plotly fills its container div — just set width */
   .dual-chart-wrap > div { width: 100%; }
 
+  /* ── Stop-reason status badges ──────────────────────────────── */
+  .status-pill {
+    display: inline-flex; align-items: center; gap: .3rem;
+    padding: .25rem .6rem; border-radius: 20px;
+    font-size: .72rem; font-weight: 700; white-space: nowrap;
+  }
+  .status-ok   { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+  .status-warn { background: #fef9c3; color: #78350f; border: 1px solid #fcd34d; }
+  .status-err  { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+
   /* ── Winner card ─────────────────────────────────────────────── */
   .winner-card {
     display: flex; align-items: flex-start; gap: 1rem;
@@ -1139,7 +1149,7 @@
                   <th>f(x*)</th>
                   <th>‖∇f‖ final</th>
                   <th>Tiempo (ms)</th>
-                  <th>Conv.</th>
+                  <th>Estado</th>
                   <th>Badges</th>
                 </tr>
               </thead>
@@ -1739,6 +1749,14 @@ function renderComparison(data, p) {
     const timePct  = (r.time_ms    / maxTime * 100).toFixed(0);
     const barClass = key==='gradient'?'bar-grad':key==='conjugate'?'bar-conj':'bar-newt';
 
+    const motivo = r.motivo_parada || (r.converged ? 'Convergencia' : 'Límite de Iters');
+    const statusCls  = motivo === 'Convergencia'   ? 'status-ok'
+                     : motivo === 'Fallo de Wolfe' ? 'status-err'
+                     : 'status-warn';
+    const statusIcon = motivo === 'Convergencia'   ? '✅'
+                     : motivo === 'Fallo de Wolfe' ? '❌'
+                     : '⚠️';
+
     tr.innerHTML = `
       <td class="method-name">${info.name}</td>
       <td class="bar-cell">
@@ -1751,7 +1769,7 @@ function renderComparison(data, p) {
         <div class="bar-bg ${barClass}" style="width:${timePct}%"></div>
         ${r.time_ms.toFixed(1)}
       </td>
-      <td class="conv-check">${r.converged ? '✅' : '⚠️'}</td>
+      <td><span class="status-pill ${statusCls}">${statusIcon} ${motivo}</span></td>
       <td><div class="badge-wrap">${badges||'—'}</div></td>`;
     tbody.appendChild(tr);
   });
@@ -2199,14 +2217,14 @@ function downloadCSV() {
     newton:    'Método de Newton',
   };
 
-  const rows = [['Método','Iteración','Coordenadas x (;)','f(x)','‖∇f‖']];
+  const rows = [['Método','Iteración','Coordenadas x (|)','f(x)','‖∇f‖']];
 
   ['gradient','conjugate','newton'].forEach(key => {
     const r = _lastCompareResults[key];
     if (!r || r.error || !r.history) return;
     const name = MNAMES[key];
     r.history.forEach(h => {
-      const coords = (h.x || []).join(';');
+      const coords = (h.x || []).join('|');
       const fval   = h.f   != null ? h.f   : '';
       const gnorm  = h.grad_norm != null ? h.grad_norm : '';
       rows.push([name, h.k, coords, fval, gnorm]);
@@ -2214,7 +2232,7 @@ function downloadCSV() {
   });
 
   const csv = rows.map(row =>
-    row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')
+    row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(';')
   ).join('\r\n');
 
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });

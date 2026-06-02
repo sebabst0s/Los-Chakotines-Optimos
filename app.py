@@ -130,20 +130,23 @@ def steepest_descent(f, x0, max_iter, tol, c1, c2, alpha_init):
     x = x0.copy()
     history = []
     gradf = lambda xk: gradient(f, xk)
+    stop_reason = 'Límite de Iters'
 
     for k in range(max_iter):
         g = gradf(x)
         gn = float(np.linalg.norm(g))
         _record(history, k, x, f(x), gn)
         if gn < tol:
+            stop_reason = 'Convergencia'
             break
         d = -g
         a = wolfe_line_search(f, gradf, x, d, alpha_init, c1, c2)
         if a is None:
+            stop_reason = 'Fallo de Wolfe'
             break
         x = x + a * d
 
-    return x, history
+    return x, history, stop_reason
 
 
 def fletcher_reeves(f, x0, max_iter, tol, c1, c2, alpha_init):
@@ -151,6 +154,7 @@ def fletcher_reeves(f, x0, max_iter, tol, c1, c2, alpha_init):
     n = len(x)
     history = []
     gradf = lambda xk: gradient(f, xk)
+    stop_reason = 'Límite de Iters'
 
     g = gradf(x)
     d = -g.copy()
@@ -159,6 +163,7 @@ def fletcher_reeves(f, x0, max_iter, tol, c1, c2, alpha_init):
         gn = float(np.linalg.norm(g))
         _record(history, k, x, f(x), gn)
         if gn < tol:
+            stop_reason = 'Convergencia'
             break
 
         a = wolfe_line_search(f, gradf, x, d, alpha_init, c1, c2)
@@ -166,6 +171,7 @@ def fletcher_reeves(f, x0, max_iter, tol, c1, c2, alpha_init):
             d = -g
             a = wolfe_line_search(f, gradf, x, d, alpha_init, c1, c2)
             if a is None:
+                stop_reason = 'Fallo de Wolfe'
                 break
 
         x_new = x + a * d
@@ -179,19 +185,21 @@ def fletcher_reeves(f, x0, max_iter, tol, c1, c2, alpha_init):
         if (k + 1) % max(n, 1) == 0:
             d = -g
 
-    return x, history
+    return x, history, stop_reason
 
 
 def newton(f, x0, max_iter, tol, c1, c2, alpha_init):
     x = x0.copy()
     history = []
     gradf = lambda xk: gradient(f, xk)
+    stop_reason = 'Límite de Iters'
 
     for k in range(max_iter):
         g = gradf(x)
         gn = float(np.linalg.norm(g))
         _record(history, k, x, f(x), gn)
         if gn < tol:
+            stop_reason = 'Convergencia'
             break
 
         H = hessian(f, x)
@@ -216,10 +224,11 @@ def newton(f, x0, max_iter, tol, c1, c2, alpha_init):
 
         a = wolfe_line_search(f, gradf, x, d, alpha_init, c1, c2)
         if a is None:
+            stop_reason = 'Fallo de Wolfe'
             break
         x = x + a * d
 
-    return x, history
+    return x, history, stop_reason
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -436,7 +445,7 @@ def optimize():
         except Exception as exc:
             return jsonify(error=f'Error evaluando la función: {exc}'), 400
 
-        x_opt, history = METHOD_FNS[method](f, x0, max_iter, tol, c1, c2, alpha_init)
+        x_opt, history, stop_reason = METHOD_FNS[method](f, x0, max_iter, tol, c1, c2, alpha_init)
 
         if not history:
             return jsonify(error='El optimizador no produjo resultados.'), 500
@@ -446,14 +455,15 @@ def optimize():
         converged = final_gn < tol
 
         return jsonify(
-            success     = True,
-            x_opt       = [round(v, 10) for v in x_opt.tolist()],
-            f_opt       = f_opt,
-            iterations  = len(history),
-            final_gn    = final_gn,
-            converged   = converged,
-            method_name = METHOD_NAMES[method],
-            history     = history[:200],
+            success        = True,
+            x_opt          = [round(v, 10) for v in x_opt.tolist()],
+            f_opt          = f_opt,
+            iterations     = len(history),
+            final_gn       = final_gn,
+            converged      = converged,
+            motivo_parada  = stop_reason,
+            method_name    = METHOD_NAMES[method],
+            history        = history[:200],
         )
 
     except Exception as exc:
@@ -486,7 +496,7 @@ def compare():
         results = {}
         for key, method_fn in METHOD_FNS.items():
             t0 = time.perf_counter()
-            x_opt, history = method_fn(f, x0.copy(), max_iter, tol, c1, c2, alpha_init)
+            x_opt, history, stop_reason = method_fn(f, x0.copy(), max_iter, tol, c1, c2, alpha_init)
             elapsed_ms = (time.perf_counter() - t0) * 1000
 
             if not history:
@@ -498,14 +508,15 @@ def compare():
             converged = final_gn < tol
 
             results[key] = {
-                'x_opt':       [round(v, 10) for v in x_opt.tolist()],
-                'f_opt':       f_opt,
-                'iterations':  len(history),
-                'final_gn':    final_gn,
-                'converged':   converged,
-                'time_ms':     elapsed_ms,
-                'method_name': METHOD_NAMES[key],
-                'history':     history[:200],
+                'x_opt':          [round(v, 10) for v in x_opt.tolist()],
+                'f_opt':          f_opt,
+                'iterations':     len(history),
+                'final_gn':       final_gn,
+                'converged':      converged,
+                'motivo_parada':  stop_reason,
+                'time_ms':        elapsed_ms,
+                'method_name':    METHOD_NAMES[key],
+                'history':        history[:200],
             }
 
         # ── 3-D surface meshgrid (only for 2-D problems) ──────────────────
