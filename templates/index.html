@@ -108,17 +108,54 @@
   @keyframes ringRot { to { transform: rotate(360deg); } }
   .s-mark {
     width: 96px; height: 96px; border-radius: 26px;
-    background: linear-gradient(135deg,#ede9fe,#fce7f3);
-    display: flex; align-items: center; justify-content: center;
     overflow: hidden;
     box-shadow: 0 8px 32px rgba(124,58,237,.35), 0 0 60px rgba(236,72,153,.18);
     opacity: 0; transform: scale(.6);
     animation: popIn .6s cubic-bezier(.34,1.56,.64,1) .1s forwards;
   }
-  .s-mark img {
-    width: 100%; height: 100%; object-fit: cover;
-    filter: hue-rotate(210deg) saturate(0.8) brightness(1.15);
+
+  /* ── Alpha logo component ────────────────────────────────────── */
+  .lc-wrap {
+    position: relative; width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #6d28d9 0%, #a21caf 50%, #db2777 100%);
+    border-radius: inherit;
   }
+  /* Shared orbit ring */
+  .lc-orbit {
+    position: absolute; border-radius: 50%;
+    border: 1.5px solid rgba(255,255,255,.28);
+    animation: lcSpin 5s linear infinite;
+  }
+  .lc-orbit-2 {
+    animation-direction: reverse;
+    animation-duration: 3.6s;
+    border-style: dashed;
+    border-color: rgba(255,255,255,.18);
+  }
+  /* Travelling dot on the ring */
+  .lc-dot {
+    position: absolute; border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 0 5px rgba(255,255,255,.8);
+  }
+  /* Alpha glyph */
+  .lc-alpha {
+    font-family: Georgia, 'Times New Roman', serif;
+    color: #fff; font-weight: 700; line-height: 1;
+    user-select: none; z-index: 1;
+    text-shadow: 0 2px 10px rgba(0,0,0,.22);
+  }
+  @keyframes lcSpin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+
+  /* Splash size (96 × 96) */
+  .s-mark .lc-orbit-1       { inset: 9px; }
+  .s-mark .lc-orbit-2       { inset: 17px; }
+  .s-mark .lc-dot           { width: 8px; height: 8px; top: -4px; left: calc(50% - 4px); }
+  .s-mark .lc-alpha         { font-size: 44px; }
   @keyframes popIn { to { opacity:1; transform:scale(1); } }
 
   .s-title {
@@ -220,14 +257,14 @@
   .logo { display:flex; align-items:center; gap:12px; text-decoration:none; }
   .logo-mark {
     width:38px; height:38px; border-radius:11px; flex-shrink:0;
-    background: linear-gradient(135deg,#ede9fe,#fce7f3);
     overflow: hidden;
     box-shadow: 0 3px 12px rgba(124,58,237,.3);
   }
-  .logo-mark img {
-    width:100%; height:100%; object-fit:cover;
-    filter: hue-rotate(210deg) saturate(0.8) brightness(1.15);
-  }
+  /* Header size (38 × 38) */
+  .logo-mark .lc-orbit-1    { inset: 3px; }
+  .logo-mark .lc-orbit-2    { inset: 7px; }
+  .logo-mark .lc-dot        { width: 4px; height: 4px; top: -2px; left: calc(50% - 2px); }
+  .logo-mark .lc-alpha      { font-size: 18px; }
   .logo-name {
     font-size:1.05rem; font-weight:900; letter-spacing:-.01em;
     background: linear-gradient(90deg,#5b21b6,#7c3aed,#ec4899,#f97316);
@@ -876,7 +913,13 @@
   <div class="s-wrap">
     <div class="s-logo">
       <div class="s-ring"></div>
-      <div class="s-mark"><img src="/static/albertloco.jpg" alt="Logo"></div>
+      <div class="s-mark">
+        <div class="lc-wrap">
+          <div class="lc-orbit lc-orbit-1"><div class="lc-dot"></div></div>
+          <div class="lc-orbit lc-orbit-2"><div class="lc-dot"></div></div>
+          <span class="lc-alpha">α</span>
+        </div>
+      </div>
     </div>
     <h1 class="s-title">
       <span class="s-line1">Los Chakotines</span>
@@ -909,7 +952,13 @@
   <!-- HEADER -->
   <header>
     <a class="logo" href="#">
-      <div class="logo-mark"><img src="/static/albertloco.jpg" alt="Logo"></div>
+      <div class="logo-mark">
+        <div class="lc-wrap">
+          <div class="lc-orbit lc-orbit-1"><div class="lc-dot"></div></div>
+          <div class="lc-orbit lc-orbit-2"><div class="lc-dot"></div></div>
+          <span class="lc-alpha">α</span>
+        </div>
+      </div>
       <div>
         <div class="logo-name">Los Chakotines Óptimos</div>
         <div class="logo-sub">Optimización Numérica · Condiciones de Wolfe</div>
