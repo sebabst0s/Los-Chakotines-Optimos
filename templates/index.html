@@ -108,12 +108,16 @@
   @keyframes ringRot { to { transform: rotate(360deg); } }
   .s-mark {
     width: 96px; height: 96px; border-radius: 26px;
-    background: linear-gradient(135deg,#7c3aed,#ec4899);
+    background: linear-gradient(135deg,#ede9fe,#fce7f3);
     display: flex; align-items: center; justify-content: center;
-    font-size: 44px; font-weight: 900; color: #fff;
+    overflow: hidden;
     box-shadow: 0 8px 32px rgba(124,58,237,.35), 0 0 60px rgba(236,72,153,.18);
     opacity: 0; transform: scale(.6);
     animation: popIn .6s cubic-bezier(.34,1.56,.64,1) .1s forwards;
+  }
+  .s-mark img {
+    width: 100%; height: 100%; object-fit: cover;
+    filter: hue-rotate(210deg) saturate(0.8) brightness(1.15);
   }
   @keyframes popIn { to { opacity:1; transform:scale(1); } }
 
@@ -216,10 +220,13 @@
   .logo { display:flex; align-items:center; gap:12px; text-decoration:none; }
   .logo-mark {
     width:38px; height:38px; border-radius:11px; flex-shrink:0;
-    background: linear-gradient(135deg,#7c3aed,#ec4899);
-    display:flex; align-items:center; justify-content:center;
-    font-size:18px; font-weight:900; color:#fff;
+    background: linear-gradient(135deg,#ede9fe,#fce7f3);
+    overflow: hidden;
     box-shadow: 0 3px 12px rgba(124,58,237,.3);
+  }
+  .logo-mark img {
+    width:100%; height:100%; object-fit:cover;
+    filter: hue-rotate(210deg) saturate(0.8) brightness(1.15);
   }
   .logo-name {
     font-size:1.05rem; font-weight:900; letter-spacing:-.01em;
@@ -869,7 +876,7 @@
   <div class="s-wrap">
     <div class="s-logo">
       <div class="s-ring"></div>
-      <div class="s-mark">∇</div>
+      <div class="s-mark"><img src="/static/albertloco.jpg" alt="Logo"></div>
     </div>
     <h1 class="s-title">
       <span class="s-line1">Los Chakotines</span>
@@ -902,7 +909,7 @@
   <!-- HEADER -->
   <header>
     <a class="logo" href="#">
-      <div class="logo-mark">∇</div>
+      <div class="logo-mark"><img src="/static/albertloco.jpg" alt="Logo"></div>
       <div>
         <div class="logo-name">Los Chakotines Óptimos</div>
         <div class="logo-sub">Optimización Numérica · Condiciones de Wolfe</div>
@@ -1300,34 +1307,61 @@
 })();
 
 
-/* ── Intro audio (intro.opus) ────────────────────────────────────── */
+/* ── Audio: splash (auto) + comenzar (on click) ──────────────────── */
 const AUDIO = (() => {
-  const _el   = new Audio('/static/audio/intro.opus');
-  _el.preload = 'auto';
-  _el.volume  = 0.85;
+  const _splash   = new Audio('/static/audio/splash.mp3');
+  const _comenzar = new Audio('/static/audio/comenzar.mp3');
+  _splash.preload   = 'auto';
+  _comenzar.preload = 'auto';
+  _splash.volume    = 0.80;
+  _comenzar.volume  = 0.85;
+  let _muted = false;
+
+  // Try autoplay; if the browser blocks it, start on the very first
+  // pointer interaction with the page (touch / click anywhere on splash).
+  function _tryPlay(el) {
+    el.currentTime = 0;
+    el.play().catch(() => {
+      const resume = () => { el.play().catch(() => {}); };
+      document.addEventListener('pointerdown', resume, { once: true, capture: true });
+    });
+  }
 
   return {
-    playJingle() {
-      if (_el.muted) return;
-      _el.currentTime = 0;
-      _el.play().catch(() => {});   // silently ignore autoplay-policy blocks
+    // Call once when splash is shown
+    initSplash() {
+      if (_muted) return;
+      _tryPlay(_splash);
+    },
+    // Call when user clicks "Comenzar"
+    playComenzar() {
+      _splash.pause();
+      if (_muted) return;
+      _comenzar.currentTime = 0;
+      _comenzar.play().catch(() => {});
     },
     toggle() {
-      _el.muted = !_el.muted;
+      _muted = !_muted;
+      _splash.muted   = _muted;
+      _comenzar.muted = _muted;
+      // If un-muting while splash is still on screen, resume it
+      if (!_muted && document.getElementById('splash') && _splash.paused) {
+        _splash.play().catch(() => {});
+      }
       document.querySelectorAll('.mute-btn').forEach(b => {
-        b.textContent = _el.muted ? '🔇' : '🔊';
-        b.title       = _el.muted ? 'Activar sonido' : 'Silenciar';
+        b.textContent = _muted ? '🔇' : '🔊';
+        b.title       = _muted ? 'Activar sonido' : 'Silenciar';
       });
-      return _el.muted;
+      return _muted;
     },
-    isMuted() { return _el.muted; },
+    isMuted() { return _muted; },
   };
 })();
 
 
 /* ── Splash → App transition ─────────────────────────────────────── */
 function enterApp() {
-  AUDIO.playJingle();
+  AUDIO.playComenzar();
   const splash = document.getElementById('splash');
   const app    = document.getElementById('app');
   splash.classList.add('exit');
@@ -2371,6 +2405,7 @@ document.addEventListener('keydown', e => {
 });
 
 /* ── Init ────────────────────────────────────────────────────────── */
+AUDIO.initSplash();
 updateMethodDesc();
 
 // Set default expression once MathLive registers the custom element
